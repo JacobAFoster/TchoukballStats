@@ -1,7 +1,8 @@
 """Tchoukball Stats – dark-themed Tkinter dashboard with tournaments."""
 
 from tkinter import *
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, colorchooser
+from tkinter.font import Font as TkFont
 import tkinter as tk
 import sqlite3
 import datetime
@@ -47,7 +48,56 @@ DEFAULT_SETTINGS = {
     "calendar_starts_monday": True,
     "recent_matches_count": 10,
     "auto_open_roster_after_match": True,
+    # --- layout & appearance ---
+    "layout_order": ["actions", "dashboard", "calendar"],
+    "section_bg": {
+        "actions":   "#1b1e26",
+        "dashboard": "#1b1e26",
+        "calendar":  "#1b1e26",
+    },
+    "section_title_color": {
+        "actions":   "#8b93a7",
+        "dashboard": "#8b93a7",
+        "calendar":  "#8b93a7",
+    },
 }
+
+
+def _is_hex_colour(value):
+    if not isinstance(value, str):
+        return False
+    if len(value) not in (4, 7) or not value.startswith("#"):
+        return False
+    return all(c in "0123456789abcdefABCDEF" for c in value[1:])
+
+
+def _validate_layout_and_colours(merged):
+    """Post-validate the complex (nested) settings after load."""
+    valid_sections = ["actions", "dashboard", "calendar"]
+
+    layout = merged.get("layout_order")
+    if not isinstance(layout, list):
+        merged["layout_order"] = list(DEFAULT_SETTINGS["layout_order"])
+    else:
+        cleaned = [s for s in layout if s in valid_sections]
+        for s in valid_sections:
+            if s not in cleaned:
+                cleaned.append(s)
+        merged["layout_order"] = cleaned
+
+    for key in ("section_bg", "section_title_color"):
+        raw = merged.get(key)
+        default = DEFAULT_SETTINGS[key]
+        if not isinstance(raw, dict):
+            merged[key] = dict(default)
+            continue
+        cleaned = {}
+        for section, default_colour in default.items():
+            colour = raw.get(section)
+            cleaned[section] = (colour
+                                if _is_hex_colour(colour)
+                                else default_colour)
+        merged[key] = cleaned
 
 
 def load_settings():
@@ -56,14 +106,16 @@ def load_settings():
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            return dict(DEFAULT_SETTINGS)
         merged = dict(DEFAULT_SETTINGS)
         for key, value in data.items():
             if key in DEFAULT_SETTINGS:
                 merged[key] = value
+        _validate_layout_and_colours(merged)
         return merged
     except (json.JSONDecodeError, OSError):
         return dict(DEFAULT_SETTINGS)
-
 
 def save_settings():
     try:
@@ -228,15 +280,168 @@ def make_small_button(parent, text, command, danger=False):
     return btn
 
 
-def card_frame(parent, title, **grid_kwargs):
-    outer = tk.Frame(parent, bg=SURFACE,
+# ------------------------------------------------------------------ date picker
+def open_date_picker(parent_win, entry_widget):
+    """Popup mini-calendar that writes YYYY-MM-DD into entry_widget."""
+    initial = entry_widget.get().strip()
+    try:
+        start = datetime.datetime.strptime(initial, "%Y-%m-%d").date()
+    except ValueError:
+        start = datetime.date.today()
+
+    pop = Toplevel(parent_win)
+    pop.overrideredirect(True)
+    pop.configure(bg=SURFACE, highlightbackground=BORDER,
+                  highlightthickness=1)
+    pop.transient(parent_win)
+
+    state = {"year": start.year, "month": start.month, "selected": start}
+
+    head = tk.Frame(pop, bg=SURFACE)
+    head.pack(fill="x", padx=6, pady=(6, 4))
+    title_lbl = tk.Label(head, text="", bg=SURFACE, fg=FG,
+                         font=(FONT, 10, "bold"))
+    title_lbl.pack(side="left", fill="x", expand=True, padx=(2, 0))
+
+    def shift(delta):
+        y, m = state["year"], state["month"]
+        m += delta
+        while m < 1:
+            m += 12
+            y -= 1
+        while m > 12:
+            m -= 12
+            y += 1
+        state["year"], state["month"] = y, m
+        render()
+
+    make_small_button(head, "‹", lambda: shift(-1)).pack(side="right", padx=1)
+    make_small_button(head, "›", lambda: shift(1)).pack(side="right", padx=1)
+
+    grid = tk.Frame(pop, bg=SURFACE)
+    grid.pack(padx=6, pady=(0, 6))
+
+    day_names = (["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+                 if SETTINGS["calendar_starts_monday"]
+                 else ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"])
+    for i, n in enumerate(day_names):
+        tk.Label(grid, text=n, bg=SURFACE, fg=MUTED, font=(FONT, 8),
+                 width=3).grid(row=0, column=i, padx=1, pady=(0, 2))
+
+    cells = []
+    for r in range(6):
+        row = []
+        for c in range(7):
+            lbl = tk.Label(grid, text="", bg=SURFACE, fg=FG,
+                           font=(FONT, 9), width=3, height=1)
+            lbl.grid(row=r + 1, column=c, padx=1, pady=1)
+            row.append(lbl)
+        cells.append(row)
+
+    today = datetime.date.today()
+
+    def pick(d):
+        entry_widget.delete(0, "end")
+        entry_widget.insert(0, d.isoformat())
+        try:
+            pop.grab_release()
+        except Exception:
+            pass
+        pop.destroy()
+
+    def render():
+        first = datetime.date(state["year"], state["month"], 1)
+        next_m = (datetime.date(state["year"] + 1, 1, 1)
+                  if state["month"] == 12
+                  else datetime.date(state["year"], state["month"] + 1, 1))
+        title_lbl.configure(text=first.strftime("%B %Y"))
+
+        offset = first.weekday()
+        if not SETTINGS["calendar_starts_monday"]:
+            offset = (offset + 1) % 7
+        days = (next_m - first).days
+
+        for r in range(6):
+            for c in range(7):
+                idx = r * 7 + c
+                day_num = idx - offset + 1
+                lbl = cells[r][c]
+                if day_num < 1 or day_num > days:
+                    lbl.configure(text="", bg=SURFACE, cursor="")
+                    lbl.unbind("<Button-1>")
+                    continue
+                d = datetime.date(state["year"], state["month"], day_num)
+                lbl.configure(text=str(day_num), cursor="hand2")
+                if d == state["selected"]:
+                    lbl.configure(bg=ACCENT, fg="#ffffff",
+                                  font=(FONT, 9, "bold"))
+                elif d == today:
+                    lbl.configure(bg=SURFACE_2, fg=ACCENT,
+                                  font=(FONT, 9, "bold"))
+                else:
+                    lbl.configure(bg=SURFACE, fg=FG, font=(FONT, 9))
+                lbl.bind("<Button-1>", lambda e, dd=d: pick(dd))
+
+    render()
+
+    pop.update_idletasks()
+    x = entry_widget.winfo_rootx()
+    y = entry_widget.winfo_rooty() + entry_widget.winfo_height() + 2
+    pop.geometry(f"+{x}+{y}")
+
+    pop.bind("<Escape>", lambda e: (pop.grab_release(), pop.destroy()))
+    pop.grab_set()
+    try:
+        pop.focus_set()
+    except Exception:
+        pass
+
+
+def card_frame(parent, title, bg=None, title_fg=None, **grid_kwargs):
+    bg = bg or SURFACE
+    title_fg = title_fg or MUTED
+    outer = tk.Frame(parent, bg=bg,
                      highlightbackground=BORDER, highlightthickness=1)
     outer.grid(sticky="nsew", **grid_kwargs)
-    inner = tk.Frame(outer, bg=SURFACE, padx=12, pady=12)
+    inner = tk.Frame(outer, bg=bg, padx=12, pady=12)
     inner.pack(fill="both", expand=True)
-    tk.Label(inner, text=title, bg=SURFACE, fg=MUTED,
+    tk.Label(inner, text=title, bg=bg, fg=title_fg,
              font=F_CAPS).pack(anchor="w", pady=(0, 8))
     return inner
+
+
+# ------------------------------------------------------------------ autofit
+def attach_autofit(tree, min_width=60, max_width=600, pad=28):
+    """Double-click any column heading to auto-fit that column's width."""
+    measure = TkFont(font=F_BODY)
+
+    def _autofit(col_id):
+        try:
+            list(tree["columns"]).index(col_id)
+        except ValueError:
+            return
+        raw = str(tree.heading(col_id, "text"))
+        text = raw.replace(" ▲", "").replace(" ▼", "")
+        widest = measure.measure(text)
+        for iid in tree.get_children(""):
+            w = measure.measure(str(tree.set(iid, col_id)))
+            if w > widest:
+                widest = w
+        new_w = max(min_width, min(widest + pad, max_width))
+        tree.column(col_id, width=new_w)
+
+    def _on_dbl(event):
+        if tree.identify_region(event.x, event.y) != "heading":
+            return
+        col = tree.identify_column(event.x)
+        try:
+            i = int(col[1:]) - 1
+            _autofit(tree["columns"][i])
+        except (ValueError, IndexError):
+            pass
+        return "break"
+
+    tree.bind("<Double-1>", _on_dbl, add="+")
 
 
 # ------------------------------------------------------------------ cascade helpers
@@ -514,6 +719,110 @@ def open_settings():
                    highlightthickness=0
                    ).pack(anchor="w", pady=2)
 
+    # --- layout
+    tk.Label(body, text="LAYOUT", bg=BG, fg=MUTED,
+             font=F_CAPS).pack(anchor="w", pady=(18, 4))
+    tk.Label(body, text="Reorder sections with ▲ / ▼.",
+             bg=BG, fg=MUTED, font=F_SMALL).pack(anchor="w", pady=(0, 6))
+
+    local_order = list(SETTINGS["layout_order"])
+    layout_holder = tk.Frame(body, bg=BG)
+    layout_holder.pack(fill="x", pady=(0, 8))
+
+    def refresh_layout_rows():
+        for child in layout_holder.winfo_children():
+            child.destroy()
+        for i, name in enumerate(local_order):
+            row = tk.Frame(layout_holder, bg=SURFACE)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=name.title(), bg=SURFACE, fg=FG,
+                     font=F_BODY, anchor="w", padx=10, pady=6
+                     ).pack(side="left", fill="x", expand=True)
+
+            def up(i=i):
+                if i > 0:
+                    local_order[i], local_order[i - 1] = (
+                        local_order[i - 1], local_order[i])
+                    refresh_layout_rows()
+
+            def down(i=i):
+                if i < len(local_order) - 1:
+                    local_order[i], local_order[i + 1] = (
+                        local_order[i + 1], local_order[i])
+                    refresh_layout_rows()
+
+            make_small_button(row, "▼", down).pack(side="right",
+                                                    padx=(0, 4), pady=3)
+            make_small_button(row, "▲", up).pack(side="right",
+                                                  padx=(0, 4), pady=3)
+
+    refresh_layout_rows()
+
+    # --- colours
+    tk.Label(body, text="COLOURS", bg=BG, fg=MUTED,
+             font=F_CAPS).pack(anchor="w", pady=(12, 4))
+    tk.Label(body, text="Click a swatch to pick a colour.",
+             bg=BG, fg=MUTED, font=F_SMALL).pack(anchor="w", pady=(0, 6))
+
+    local_bg = dict(SETTINGS["section_bg"])
+    local_title = dict(SETTINGS["section_title_color"])
+
+    colours_holder = tk.Frame(body, bg=BG)
+    colours_holder.pack(fill="x", pady=(0, 8))
+
+    def swatch(parent, initial, on_pick):
+        btn = tk.Button(parent, bg=initial, relief="flat", bd=0,
+                        highlightthickness=1, highlightbackground=BORDER,
+                        width=4, cursor="hand2", command=None)
+        def _pick(b=btn):
+            _, hexval = colorchooser.askcolor(color=b["bg"], parent=win)
+            if hexval:
+                b.configure(bg=hexval)
+                on_pick(hexval)
+        btn.configure(command=_pick)
+        return btn
+
+    for section in ("actions", "dashboard", "calendar"):
+        row = tk.Frame(colours_holder, bg=BG)
+        row.pack(fill="x", pady=2)
+        tk.Label(row, text=section.title(), bg=BG, fg=FG, font=F_BODY,
+                 width=12, anchor="w").pack(side="left")
+
+        bg_btn = swatch(row, local_bg[section],
+                        lambda v, s=section: local_bg.__setitem__(s, v))
+        bg_btn.pack(side="left", padx=(0, 4), ipady=6)
+        tk.Label(row, text="background", bg=BG, fg=MUTED,
+                 font=F_SMALL).pack(side="left", padx=(0, 12))
+
+        t_btn = swatch(row, local_title[section],
+                       lambda v, s=section: local_title.__setitem__(s, v))
+        t_btn.pack(side="left", padx=(0, 4), ipady=6)
+        tk.Label(row, text="title", bg=BG, fg=MUTED,
+                 font=F_SMALL).pack(side="left")
+
+    def reset_layout():
+        if messagebox.askyesno("Reset layout",
+                               "Reset section order to the default?",
+                               parent=win):
+            local_order[:] = list(DEFAULT_SETTINGS["layout_order"])
+            refresh_layout_rows()
+
+    def reset_colours():
+        if messagebox.askyesno("Reset colours",
+                               "Reset section colours to the default?",
+                               parent=win):
+            local_bg.update(DEFAULT_SETTINGS["section_bg"])
+            local_title.update(DEFAULT_SETTINGS["section_title_color"])
+            win.destroy()
+            open_settings()
+
+    reset_row = tk.Frame(body, bg=BG)
+    reset_row.pack(fill="x", pady=(0, 6))
+    make_small_button(reset_row, "Reset layout", reset_layout
+                      ).pack(side="left")
+    make_small_button(reset_row, "Reset colours", reset_colours
+                      ).pack(side="left", padx=(6, 0))
+
     # --- actions
     actions = tk.Frame(body, bg=BG)
     actions.pack(fill="x", pady=(22, 0))
@@ -523,7 +832,12 @@ def open_settings():
                                "Reset all settings to their defaults?",
                                parent=win):
             SETTINGS.clear()
-            SETTINGS.update(DEFAULT_SETTINGS)
+            SETTINGS.update({
+                k: (dict(v) if isinstance(v, dict)
+                    else list(v) if isinstance(v, list)
+                    else v)
+                for k, v in DEFAULT_SETTINGS.items()
+            })
             save_settings()
             win.destroy()
             refresh_dashboard()
@@ -554,8 +868,16 @@ def open_settings():
         SETTINGS["calendar_starts_monday"] = mon_var.get()
         SETTINGS["recent_matches_count"] = rn
         SETTINGS["auto_open_roster_after_match"] = auto_var.get()
+        SETTINGS["layout_order"] = list(local_order)
+        SETTINGS["section_bg"] = dict(local_bg)
+        SETTINGS["section_title_color"] = dict(local_title)
         save_settings()
-        refresh_dashboard()
+        try:
+            rebuild_sections()
+        except Exception as exc:
+            messagebox.showerror("Rebuild failed",
+                                 f"{type(exc).__name__}: {exc}", parent=win)
+            return
         set_status("Settings saved.")
         win.destroy()
 
@@ -568,16 +890,17 @@ def open_settings():
 
 
 # ------------------------------------------------------------------ bootstrap
-init_db()
 root = Tk()
 root.title("Tchoukball Stats")
 root.configure(bg=BG)
 center_window(root, 1000, 780)
 root.minsize(900, 640)
+root.columnconfigure(0, weight=1)
+root.rowconfigure(2, weight=1)
 apply_theme(root)
 
 header = tk.Frame(root, bg=BG)
-header.pack(fill="x", padx=22, pady=(18, 10))
+header.grid(row=0, column=0, sticky="ew", padx=22, pady=(18, 6))
 
 header_text = tk.Frame(header, bg=BG)
 header_text.pack(side="left")
@@ -589,13 +912,16 @@ tk.Label(header_text, text="Manage teams, matches and tournaments.",
 make_small_button(header, "⚙ Settings", open_settings).pack(
     side="right", anchor="n")
 
-tk.Frame(root, bg=BORDER).pack(fill="x", padx=22, pady=(0, 0))
-tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=22)
+tk.Frame(root, bg=BORDER, height=1).grid(row=1, column=0, sticky="ew", padx=22)
+
+content_area = tk.Frame(root, bg=BG)
+content_area.grid(row=2, column=0, sticky="nsew")
+content_area.columnconfigure(0, weight=1)
 
 status_var = StringVar()
 status_lbl = tk.Label(root, textvariable=status_var, bg=BG, fg=MUTED,
                       font=F_SMALL, anchor="w", padx=22, pady=6)
-status_lbl.pack(fill="x", side="bottom")
+status_lbl.grid(row=3, column=0, sticky="ew")
 
 _status_job = None
 def set_status(message, error=False):
@@ -643,6 +969,13 @@ def show_table(title, query, columns, compare_kind=None):
                             textvariable=filter_var, width=40)
     filter_entry.pack(side="left", ipady=4, fill="x", expand=True)
 
+    def _focus_filter(event=None):
+        filter_entry.focus_set()
+        filter_entry.select_range(0, "end")
+        return "break"
+
+    win.bind("<Control-f>", _focus_filter)
+
     shell = tk.Frame(win, bg=BORDER)
     shell.pack(fill="both", expand=True, padx=22, pady=(0, 8))
 
@@ -660,6 +993,7 @@ def show_table(title, query, columns, compare_kind=None):
         tree.column(col, width=max(90, min(240, longest * 9 + 28)),
                     minwidth=70, anchor="w", stretch=True)
 
+    attach_autofit(tree)
     tree.tag_configure("row_even", background=SURFACE)
     tree.tag_configure("row_odd",  background=STRIPE)
 
@@ -808,6 +1142,20 @@ def make_form(title, subtitle, fields, on_submit):
             w = ttk.Combobox(body, values=field["values"],
                              state="readonly", font=F_BODY, height=10)
             w.pack(fill="x")
+        elif field.get("date"):
+            row = tk.Frame(body, bg=BG)
+            row.pack(fill="x")
+            w = tk.Entry(row, bg=SURFACE, fg=FG, insertbackground=FG,
+                         relief="flat", highlightthickness=1,
+                         highlightbackground=BORDER, highlightcolor=ACCENT,
+                         font=F_BODY, width=30)
+            w.pack(side="left", fill="x", expand=True, ipady=7)
+            tk.Button(row, text="📅", cursor="hand2",
+                      bg=SURFACE_2, fg=FG, activebackground=BORDER,
+                      activeforeground=FG, relief="flat", bd=0,
+                      highlightthickness=0, padx=8, font=F_BODY,
+                      command=lambda e=w, ww=win: open_date_picker(ww, e)
+                      ).pack(side="left", padx=(4, 0), ipady=2)
         else:
             w = tk.Entry(body, bg=SURFACE, fg=FG, insertbackground=FG,
                          relief="flat", highlightthickness=1,
@@ -893,7 +1241,8 @@ def add_player():
     make_form("New player", "First name required; other fields optional.",
               [{"label": "First name", "key": "fname", "required": True},
                {"label": "Surname", "key": "sname"},
-               {"label": "Birthday (YYYY-MM-DD)", "key": "birthday"},
+               {"label": "Birthday (YYYY-MM-DD)", "key": "birthday",
+                "date": True},
                {"label": "Team (optional)", "key": "team", "values": team_opts}],
               save)
 
@@ -916,7 +1265,7 @@ def add_tournament():
 
     make_form("New tournament", "Give your tournament a name, date and place.",
               [{"label": "Tournament name", "key": "name", "required": True},
-               {"label": "Date (YYYY-MM-DD)", "key": "date"},
+               {"label": "Date (YYYY-MM-DD)", "key": "date", "date": True},
                {"label": "Location", "key": "loc"}], save)
 
 
@@ -972,7 +1321,7 @@ def add_match():
                {"label": "Away team", "key": "away",
                 "values": list(team_of), "required": True},
                {"label": "Location", "key": "loc"},
-               {"label": "Date (YYYY-MM-DD)", "key": "date"},
+               {"label": "Date (YYYY-MM-DD)", "key": "date", "date": True},
                {"label": "Home score", "key": "hs"},
                {"label": "Away score", "key": "as"}],
               save)
@@ -1018,6 +1367,7 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
         tree.column(col, width=width, minwidth=50, anchor="w")
     if list_columns:
         tree.column(list_columns[-1], stretch=True)
+    attach_autofit(tree)
     tree.tag_configure("row_even", background=SURFACE)
     tree.tag_configure("row_odd",  background=STRIPE)
 
@@ -1030,6 +1380,20 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
             w = ttk.Combobox(form, values=[d for d, _ in field["options"]],
                              state="readonly", font=F_BODY, height=10)
             w.grid(row=r * 2 + 1, column=c, sticky="ew", padx=(0, 8))
+        elif field.get("widget") == "date":
+            cell = tk.Frame(form, bg=BG)
+            cell.grid(row=r * 2 + 1, column=c, sticky="ew", padx=(0, 8))
+            w = tk.Entry(cell, bg=SURFACE, fg=FG, insertbackground=FG,
+                         relief="flat", highlightthickness=1,
+                         highlightbackground=BORDER, highlightcolor=ACCENT,
+                         font=F_BODY)
+            w.pack(side="left", fill="x", expand=True, ipady=6)
+            tk.Button(cell, text="📅", cursor="hand2",
+                      bg=SURFACE_2, fg=FG, activebackground=BORDER,
+                      activeforeground=FG, relief="flat", bd=0,
+                      highlightthickness=0, padx=8, font=F_BODY,
+                      command=lambda e=w, ww=win: open_date_picker(ww, e)
+                      ).pack(side="left", padx=(4, 0), ipady=2)
         else:
             w = tk.Entry(form, bg=SURFACE, fg=FG, insertbackground=FG,
                          relief="flat", highlightthickness=1,
@@ -1285,7 +1649,7 @@ def edit_player():
              "column": "PlayerName", "required": True},
             {"label": "Surname", "key": "sname", "column": "PlayerSurname"},
             {"label": "Birthday (YYYY-MM-DD)", "key": "birthday",
-             "column": "PlayerBirthdate"},
+             "column": "PlayerBirthdate", "widget": "date"},
             {"label": "Team", "key": "team", "column": "TeamID",
              "widget": "combo", "options": team_opts},
         ],
@@ -1323,7 +1687,7 @@ def edit_tournament():
             {"label": "Name", "key": "name", "column": "TournamentName",
              "required": True},
             {"label": "Date (YYYY-MM-DD)", "key": "date",
-             "column": "TournamentDate"},
+             "column": "TournamentDate", "widget": "date"},
             {"label": "Location", "key": "loc", "column": "TournamentLocation"},
         ],
         validator=validate_tournament,
@@ -1380,7 +1744,8 @@ def edit_match():
             {"label": "Tournament", "key": "tournament",
              "column": "TournamentID", "widget": "combo", "options": tourn_opts},
             {"label": "Location", "key": "loc", "column": "MatchLocation"},
-            {"label": "Date (YYYY-MM-DD)", "key": "date", "column": "MatchDate"},
+            {"label": "Date (YYYY-MM-DD)", "key": "date",
+             "column": "MatchDate", "widget": "date"},
             {"label": "Home score", "key": "hs", "column": "MatchHScore",
              "numeric": True},
             {"label": "Away score", "key": "as", "column": "MatchAScore",
@@ -1506,6 +1871,7 @@ def open_remover(title, subtitle, table, id_col, list_query,
         tree.column(col, width=width, minwidth=50, anchor="w")
     if list_columns:
         tree.column(list_columns[-1], stretch=True)
+    attach_autofit(tree)
     tree.tag_configure("row_even", background=SURFACE)
     tree.tag_configure("row_odd",  background=STRIPE)
 
@@ -1820,6 +2186,7 @@ def open_roster_picker():
         tree.heading(col, text=col, anchor="w")
         tree.column(col, width=w, minwidth=40, anchor="w",
                     stretch=(col == "Match"))
+    attach_autofit(tree)
     tree.tag_configure("row_even", background=SURFACE)
     tree.tag_configure("row_odd",  background=STRIPE)
     for i, r in enumerate(rows):
@@ -1890,6 +2257,7 @@ def open_roster_viewer():
         tree.column(col, width=w, minwidth=40,
                     anchor="w" if col in ("Name", "Team") else "center",
                     stretch=(col == "Name"))
+    attach_autofit(tree)
     sb = ttk.Scrollbar(shell, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=sb.set)
     sb.pack(side="right", fill="y", padx=(0, 1), pady=1)
@@ -2401,120 +2769,145 @@ def open_compare(kind, preselected=None):
 
 
 # ------------------------------------------------------------------ top action row
-action_row = tk.Frame(root, bg=BG)
-action_row.pack(fill="x", padx=22, pady=(14, 8))
-for i in range(4):
-    action_row.columnconfigure(i, weight=1, uniform="act")
+_section_widgets = {}
 
-FUNC_BLOCKS = [
-    ("BROWSE", [("Teams",       browse_teams),
-                ("Clubs",       browse_clubs),
-                ("Players",     browse_players),
-                ("Rosters",     open_roster_viewer),
-                ("Matches",     browse_matches),
-                ("Tournaments", browse_tournaments)]),
-    ("ADD",    [("Team",        add_team),
-                ("Club",        add_club),
-                ("Player",      add_player),
-                ("Match",       add_match),
-                ("Tournament",  add_tournament)]),
-    ("EDIT",   [("Teams",       edit_team),
-                ("Clubs",       edit_club),
-                ("Players",     edit_player),
-                ("Matches",     edit_match),
-                ("Tournaments", edit_tournament),
-                ("Match rosters", open_roster_picker)]),
-    ("REMOVE", [("Team",        remove_team),
-                ("Club",        remove_club),
-                ("Player",      remove_player),
-                ("Match",       remove_match),
-                ("Tournament",  remove_tournament)]),
-]
-for i, (title, items) in enumerate(FUNC_BLOCKS):
-    padx = (0, 6) if i == 0 else (6, 0) if i == 3 else (6, 6)
-    inner = card_frame(action_row, title, row=0, column=i, padx=padx, pady=0)
-    for label, cmd in items:
-        make_small_button(inner, label, cmd,
-                          danger=(title == "REMOVE")).pack(fill="x", pady=2)
+
+def build_actions_section(parent):
+    bg = SETTINGS["section_bg"]["actions"]
+    title_fg = SETTINGS["section_title_color"]["actions"]
+
+    action_row = tk.Frame(parent, bg=bg,
+                          highlightbackground=BORDER, highlightthickness=1)
+    for i in range(4):
+        action_row.columnconfigure(i, weight=1, uniform="act")
+
+    FUNC_BLOCKS = [
+        ("BROWSE", [("Teams",       browse_teams),
+                    ("Clubs",       browse_clubs),
+                    ("Players",     browse_players),
+                    ("Rosters",     open_roster_viewer),
+                    ("Matches",     browse_matches),
+                    ("Tournaments", browse_tournaments)]),
+        ("ADD",    [("Team",        add_team),
+                    ("Club",        add_club),
+                    ("Player",      add_player),
+                    ("Match",       add_match),
+                    ("Tournament",  add_tournament)]),
+        ("EDIT",   [("Teams",       edit_team),
+                    ("Clubs",       edit_club),
+                    ("Players",     edit_player),
+                    ("Matches",     edit_match),
+                    ("Tournaments", edit_tournament),
+                    ("Match rosters", open_roster_picker)]),
+        ("REMOVE", [("Team",        remove_team),
+                    ("Club",        remove_club),
+                    ("Player",      remove_player),
+                    ("Match",       remove_match),
+                    ("Tournament",  remove_tournament)]),
+    ]
+    for i, (title, items) in enumerate(FUNC_BLOCKS):
+        padx = (0 if i == 0 else 6, 0 if i == 3 else 6)
+        inner = card_frame(action_row, title, bg=bg, title_fg=title_fg,
+                           row=0, column=i, padx=padx, pady=0)
+        for label, cmd in items:
+            make_small_button(inner, label, cmd,
+                              danger=(title == "REMOVE")).pack(fill="x", pady=2)
+    return action_row
 
 
 # ------------------------------------------------------------------ calendar
-cal_card = tk.Frame(root, bg=SURFACE, highlightbackground=BORDER,
-                    highlightthickness=1)
-cal_card.pack(fill="x", side="bottom", padx=22, pady=(6, 4))
-
-cal_header = tk.Frame(cal_card, bg=SURFACE)
-cal_header.pack(fill="x", padx=12, pady=(10, 6))
-
-tk.Label(cal_header, text="MATCH CALENDAR", bg=SURFACE, fg=MUTED,
-         font=F_CAPS).pack(side="left")
-cal_month_lbl = tk.Label(cal_header, text="", bg=SURFACE, fg=FG,
-                         font=(FONT, 11, "bold"))
-cal_month_lbl.pack(side="left", padx=(14, 0))
-
-cal_nav = tk.Frame(cal_header, bg=SURFACE)
-cal_nav.pack(side="right")
-
 cal_state = {
     "year": datetime.date.today().year,
     "month": datetime.date.today().month,
     "selected": datetime.date.today().isoformat(),
 }
-
 _calendar_counts_cache = {}
+cal_month_lbl = None
+cal_cells = None
+cal_details_lbl = None
+cal_tree = None
+cal_day_labels = None
 
 
 def invalidate_calendar_cache():
     _calendar_counts_cache.clear()
 
-cal_body = tk.Frame(cal_card, bg=SURFACE)
-cal_body.pack(fill="x", padx=12, pady=(0, 10))
-cal_body.columnconfigure(0, weight=0)
-cal_body.columnconfigure(1, weight=1)
-cal_body.rowconfigure(0, weight=1)
 
-cal_grid = tk.Frame(cal_body, bg=SURFACE)
-cal_grid.grid(row=0, column=0, sticky="nw", padx=(0, 14))
+def build_calendar_section(parent):
+    global cal_month_lbl, cal_cells, cal_details_lbl, cal_tree, cal_day_labels
 
-cal_day_labels = []
-for i, name in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
-    lbl = tk.Label(cal_grid, text=name, bg=SURFACE, fg=MUTED,
-                   font=F_SMALL, width=4)
-    lbl.grid(row=0, column=i, padx=1, pady=(0, 3))
-    cal_day_labels.append(lbl)
+    bg = SETTINGS["section_bg"]["calendar"]
+    title_fg = SETTINGS["section_title_color"]["calendar"]
 
-cal_cells = []
-for w in range(6):
-    row = []
-    for d in range(7):
-        lbl = tk.Label(cal_grid, text="", bg=SURFACE, fg=FG,
-                       font=F_SMALL, width=4, height=1)
-        lbl.grid(row=w + 1, column=d, padx=1, pady=1)
-        lbl._iso = None
-        row.append(lbl)
-    cal_cells.append(row)
+    cal_card = tk.Frame(parent, bg=bg, highlightbackground=BORDER,
+                        highlightthickness=1)
 
-cal_details = tk.Frame(cal_body, bg=SURFACE)
-cal_details.grid(row=0, column=1, sticky="nsew")
+    cal_header = tk.Frame(cal_card, bg=bg)
+    cal_header.pack(fill="x", padx=12, pady=(10, 6))
+    tk.Label(cal_header, text="MATCH CALENDAR", bg=bg, fg=title_fg,
+             font=F_CAPS).pack(side="left")
+    cal_month_lbl = tk.Label(cal_header, text="", bg=bg, fg=FG,
+                             font=(FONT, 11, "bold"))
+    cal_month_lbl.pack(side="left", padx=(14, 0))
+    cal_nav = tk.Frame(cal_header, bg=bg)
+    cal_nav.pack(side="right")
 
-cal_details_lbl = tk.Label(cal_details, text="", bg=SURFACE, fg=FG,
-                           font=(FONT, 10, "bold"), anchor="w")
-cal_details_lbl.pack(fill="x", pady=(0, 4))
+    cal_body = tk.Frame(cal_card, bg=bg)
+    cal_body.pack(fill="x", padx=12, pady=(0, 10))
+    cal_body.columnconfigure(0, weight=0)
+    cal_body.columnconfigure(1, weight=1)
+    cal_body.rowconfigure(0, weight=1)
 
-cal_tree = ttk.Treeview(cal_details,
-                        columns=["Home", "Score", "Away", "Tournament"],
-                        show="headings", height=3)
-for col, w in zip(["Home", "Score", "Away", "Tournament"],
-                  [130, 60, 130, 130]):
-    cal_tree.heading(col, text=col, anchor="w")
-    cal_tree.column(col, width=w, minwidth=40, anchor="w",
-                    stretch=(col in ("Home", "Away", "Tournament")))
-cal_tree.pack(fill="both", expand=True)
-cal_tree.tag_configure("row_even", background=SURFACE)
-cal_tree.tag_configure("row_odd",  background=STRIPE)
+    cal_grid = tk.Frame(cal_body, bg=bg)
+    cal_grid.grid(row=0, column=0, sticky="nw", padx=(0, 14))
 
-cal_empty_lbl = tk.Label(cal_details, text="No matches on this day",
-                         bg=SURFACE, fg=MUTED, font=F_SMALL)
+    cal_day_labels = []
+    for i, name in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+        lbl = tk.Label(cal_grid, text=name, bg=bg, fg=title_fg,
+                       font=F_SMALL, width=4)
+        lbl.grid(row=0, column=i, padx=1, pady=(0, 3))
+        cal_day_labels.append(lbl)
+
+    cal_cells = []
+    for w in range(6):
+        row = []
+        for d in range(7):
+            lbl = tk.Label(cal_grid, text="", bg=bg, fg=FG,
+                           font=F_SMALL, width=4, height=1)
+            lbl.grid(row=w + 1, column=d, padx=1, pady=1)
+            lbl._iso = None
+            row.append(lbl)
+        cal_cells.append(row)
+
+    cal_details = tk.Frame(cal_body, bg=bg)
+    cal_details.grid(row=0, column=1, sticky="nsew")
+    cal_details_lbl = tk.Label(cal_details, text="", bg=bg, fg=FG,
+                               font=(FONT, 10, "bold"), anchor="w")
+    cal_details_lbl.pack(fill="x", pady=(0, 4))
+
+    cal_tree = ttk.Treeview(cal_details,
+                            columns=["Home", "Score", "Away", "Tournament"],
+                            show="headings", height=3)
+    for col, w in zip(["Home", "Score", "Away", "Tournament"],
+                      [130, 60, 130, 130]):
+        cal_tree.heading(col, text=col, anchor="w")
+        cal_tree.column(col, width=w, minwidth=40, anchor="w",
+                        stretch=(col in ("Home", "Away", "Tournament")))
+    cal_tree.pack(fill="both", expand=True)
+    cal_tree.tag_configure("row_even", background=bg)
+    cal_tree.tag_configure("row_odd",  background=STRIPE)
+
+    cal_empty_lbl = tk.Label(cal_details, text="No matches on this day",
+                             bg=bg, fg=title_fg, font=F_SMALL)
+    cal_empty_lbl.place_forget()
+
+    make_small_button(cal_nav, "‹", _cal_prev).pack(side="left", padx=2)
+    make_small_button(cal_nav, "Today", _cal_today).pack(side="left", padx=2)
+    make_small_button(cal_nav, "›", _cal_next).pack(side="left", padx=2)
+
+    # keep a reference so load_calendar() can toggle the placeholder
+    cal_tree._empty_lbl = cal_empty_lbl
+    return cal_card
 
 
 def _cal_click(iso):
@@ -2548,11 +2941,6 @@ def _cal_today():
     cal_state["month"] = t.month
     cal_state["selected"] = t.isoformat()
     load_calendar()
-
-
-make_small_button(cal_nav, "‹", _cal_prev).pack(side="left", padx=2)
-make_small_button(cal_nav, "Today", _cal_today).pack(side="left", padx=2)
-make_small_button(cal_nav, "›", _cal_next).pack(side="left", padx=2)
 
 
 def load_calendar():
@@ -2635,88 +3023,110 @@ def load_calendar():
             WHERE m.MatchDate = ?
             ORDER BY m.MatchID
         """, (sel,)).fetchall()
+    empty_lbl = getattr(cal_tree, "_empty_lbl", None)
     if rows:
-        cal_empty_lbl.place_forget()
+        if empty_lbl:
+            empty_lbl.place_forget()
         for i, r in enumerate(rows):
             cal_tree.insert("", "end", values=r,
                             tags=("row_even" if i % 2 == 0 else "row_odd",))
     else:
-        cal_empty_lbl.place(relx=0.5, rely=0.5, anchor="center")
-
-load_calendar()
+        if empty_lbl:
+            empty_lbl.place(relx=0.5, rely=0.5, anchor="center")
 
 
 # ------------------------------------------------------------------ dashboard
-dashboard = tk.Frame(root, bg=BG)
-dashboard.pack(fill="both", expand=True, padx=22, pady=(0, 4))
-dashboard.columnconfigure(0, weight=1, uniform="dash")
-dashboard.columnconfigure(1, weight=1, uniform="dash")
-dashboard.rowconfigure(0, weight=1, uniform="drow")
-dashboard.rowconfigure(1, weight=1, uniform="drow")
+tournaments_tree = None
+recent_tree = None
+progress_tree = None
+progress_subtitle = None
 
-tourn_inner = card_frame(dashboard, "TOURNAMENTS",
-                         row=0, column=0, padx=(0, 6), pady=(0, 6))
-recent_inner = card_frame(dashboard, "RECENT MATCHES",
-                          row=0, column=1, padx=(6, 0), pady=(0, 6))
-progress_inner = card_frame(dashboard, "TOURNAMENT PROGRESS",
-                            row=1, column=0, columnspan=2, padx=0, pady=(6, 0))
 
-t_shell = tk.Frame(tourn_inner, bg=BORDER)
-t_shell.pack(fill="both", expand=True)
-tournaments_tree = ttk.Treeview(t_shell, columns=["Name", "Date", "Matches"],
-                                show="headings", selectmode="browse")
-t_scroll = ttk.Scrollbar(t_shell, orient="vertical",
-                         command=tournaments_tree.yview)
-tournaments_tree.configure(yscrollcommand=t_scroll.set)
-t_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
-tournaments_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
-for col, w in zip(["Name", "Date", "Matches"], [260, 110, 70]):
-    tournaments_tree.heading(col, text=col, anchor="w")
-    tournaments_tree.column(col, width=w, minwidth=50, anchor="w",
-                            stretch=(col == "Name"))
-tournaments_tree.tag_configure("row_even", background=SURFACE)
-tournaments_tree.tag_configure("row_odd",  background=STRIPE)
+def build_dashboard_section(parent):
+    global tournaments_tree, recent_tree, progress_tree, progress_subtitle
 
-r_shell = tk.Frame(recent_inner, bg=BORDER)
-r_shell.pack(fill="both", expand=True)
-recent_tree = ttk.Treeview(r_shell,
-                           columns=["Date", "Home", "Away", "Score", "Tourn."],
-                           show="headings", selectmode="none")
-r_scroll = ttk.Scrollbar(r_shell, orient="vertical", command=recent_tree.yview)
-recent_tree.configure(yscrollcommand=r_scroll.set)
-r_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
-recent_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
-for col, w in zip(["Date", "Home", "Away", "Score", "Tourn."],
-                  [95, 120, 120, 70, 120]):
-    recent_tree.heading(col, text=col, anchor="w")
-    recent_tree.column(col, width=w, minwidth=50, anchor="w",
-                       stretch=(col in ("Home", "Away", "Tourn.")))
-recent_tree.tag_configure("row_even", background=SURFACE)
-recent_tree.tag_configure("row_odd",  background=STRIPE)
+    bg = SETTINGS["section_bg"]["dashboard"]
+    title_fg = SETTINGS["section_title_color"]["dashboard"]
 
-progress_subtitle = tk.Label(progress_inner,
-                             text="Select a tournament above to see standings.",
-                             bg=SURFACE, fg=MUTED, font=F_SMALL)
-progress_subtitle.pack(anchor="w", pady=(0, 6))
-p_shell = tk.Frame(progress_inner, bg=BORDER)
-p_shell.pack(fill="both", expand=True)
-progress_tree = ttk.Treeview(p_shell,
-                             columns=["Team", "P", "W", "D", "L", "Pts"],
-                             show="headings", selectmode="none")
-p_scroll = ttk.Scrollbar(p_shell, orient="vertical",
-                         command=progress_tree.yview)
-progress_tree.configure(yscrollcommand=p_scroll.set)
-p_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
-progress_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
-for col, w in zip(["Team", "P", "W", "D", "L", "Pts"],
-                  [280, 60, 60, 60, 60, 70]):
-    progress_tree.heading(col, text=col,
-                          anchor="w" if col == "Team" else "center")
-    progress_tree.column(col, width=w, minwidth=40,
-                         anchor="w" if col == "Team" else "center",
-                         stretch=(col == "Team"))
-progress_tree.tag_configure("row_even", background=SURFACE)
-progress_tree.tag_configure("row_odd",  background=STRIPE)
+    dashboard = tk.Frame(parent, bg=BG)
+    dashboard.columnconfigure(0, weight=1, uniform="dash")
+    dashboard.columnconfigure(1, weight=1, uniform="dash")
+    dashboard.rowconfigure(0, weight=1, uniform="drow")
+    dashboard.rowconfigure(1, weight=1, uniform="drow")
+
+    tourn_inner = card_frame(dashboard, "TOURNAMENTS", bg=bg,
+                             title_fg=title_fg,
+                             row=0, column=0, padx=(0, 6), pady=(0, 6))
+    recent_inner = card_frame(dashboard, "RECENT MATCHES", bg=bg,
+                              title_fg=title_fg,
+                              row=0, column=1, padx=(6, 0), pady=(0, 6))
+    progress_inner = card_frame(dashboard, "TOURNAMENT PROGRESS", bg=bg,
+                                title_fg=title_fg,
+                                row=1, column=0, columnspan=2,
+                                padx=0, pady=(6, 0))
+
+    t_shell = tk.Frame(tourn_inner, bg=BORDER)
+    t_shell.pack(fill="both", expand=True)
+    tournaments_tree = ttk.Treeview(
+        t_shell, columns=["Name", "Date", "Matches"],
+        show="headings", selectmode="browse")
+    t_scroll = ttk.Scrollbar(t_shell, orient="vertical",
+                             command=tournaments_tree.yview)
+    tournaments_tree.configure(yscrollcommand=t_scroll.set)
+    t_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
+    tournaments_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+    for col, w in zip(["Name", "Date", "Matches"], [260, 110, 70]):
+        tournaments_tree.heading(col, text=col, anchor="w")
+        tournaments_tree.column(col, width=w, minwidth=50, anchor="w",
+                                stretch=(col == "Name"))
+    tournaments_tree.tag_configure("row_even", background=SURFACE)
+    tournaments_tree.tag_configure("row_odd",  background=STRIPE)
+    tournaments_tree.bind("<<TreeviewSelect>>", on_tournament_select)
+
+    r_shell = tk.Frame(recent_inner, bg=BORDER)
+    r_shell.pack(fill="both", expand=True)
+    recent_tree = ttk.Treeview(
+        r_shell, columns=["Date", "Home", "Away", "Score", "Tourn."],
+        show="headings", selectmode="none")
+    r_scroll = ttk.Scrollbar(r_shell, orient="vertical",
+                             command=recent_tree.yview)
+    recent_tree.configure(yscrollcommand=r_scroll.set)
+    r_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
+    recent_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+    for col, w in zip(["Date", "Home", "Away", "Score", "Tourn."],
+                      [95, 120, 120, 70, 120]):
+        recent_tree.heading(col, text=col, anchor="w")
+        recent_tree.column(col, width=w, minwidth=50, anchor="w",
+                           stretch=(col in ("Home", "Away", "Tourn.")))
+    recent_tree.tag_configure("row_even", background=SURFACE)
+    recent_tree.tag_configure("row_odd",  background=STRIPE)
+
+    progress_subtitle = tk.Label(
+        progress_inner,
+        text="Select a tournament above to see standings.",
+        bg=bg, fg=title_fg, font=F_SMALL)
+    progress_subtitle.pack(anchor="w", pady=(0, 6))
+    p_shell = tk.Frame(progress_inner, bg=BORDER)
+    p_shell.pack(fill="both", expand=True)
+    progress_tree = ttk.Treeview(
+        p_shell, columns=["Team", "P", "W", "D", "L", "Pts"],
+        show="headings", selectmode="none")
+    p_scroll = ttk.Scrollbar(p_shell, orient="vertical",
+                             command=progress_tree.yview)
+    progress_tree.configure(yscrollcommand=p_scroll.set)
+    p_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
+    progress_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+    for col, w in zip(["Team", "P", "W", "D", "L", "Pts"],
+                      [280, 60, 60, 60, 60, 70]):
+        progress_tree.heading(col, text=col,
+                              anchor="w" if col == "Team" else "center")
+        progress_tree.column(col, width=w, minwidth=40,
+                             anchor="w" if col == "Team" else "center",
+                             stretch=(col == "Team"))
+    progress_tree.tag_configure("row_even", background=SURFACE)
+    progress_tree.tag_configure("row_odd",  background=STRIPE)
+
+    return dashboard
 
 
 def load_tournaments():
@@ -2834,9 +3244,51 @@ def refresh_dashboard():
     load_calendar()
 
 
-tournaments_tree.bind("<<TreeviewSelect>>", on_tournament_select)
+def rebuild_sections():
+    for widget in list(_section_widgets.values()):
+        widget.destroy()
+    _section_widgets.clear()
+
+    for i in range(5):
+        content_area.rowconfigure(i, weight=0)
+
+    builders = {
+        "actions":   build_actions_section,
+        "dashboard": build_dashboard_section,
+        "calendar":  build_calendar_section,
+    }
+    for i, name in enumerate(SETTINGS["layout_order"]):
+        builder = builders.get(name)
+        if not builder:
+            continue
+        frame = builder(content_area)
+        frame.grid(row=i, column=0, sticky="nsew", padx=22, pady=6)
+        content_area.rowconfigure(i, weight=(1 if name == "dashboard" else 0))
+        _section_widgets[name] = frame
+
+    refresh_dashboard()
+
+
 root.bind("<<DataChanged>>", lambda e: refresh_dashboard())
 
-refresh_dashboard()
+rebuild_sections()
+
+# ------------------------------------------------------------------ global shortcuts
+def _shortcut_new_match(event=None):
+    focused = root.focus_get()
+    if focused is None:
+        return
+    if focused.winfo_toplevel() is root:
+        add_match()
+
+def _shortcut_quit(event=None):
+    focused = root.focus_get()
+    if focused is None:
+        return
+    if focused.winfo_toplevel() is root:
+        root.destroy()
+
+root.bind("<Control-n>", _shortcut_new_match)
+root.bind("<Control-q>", _shortcut_quit)
 
 root.mainloop()
