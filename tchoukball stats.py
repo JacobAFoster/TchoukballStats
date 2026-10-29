@@ -33,7 +33,8 @@ def init_db():
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS Teams (
           TeamID   INTEGER PRIMARY KEY,
-          TeamName TEXT NOT NULL UNIQUE
+          TeamName TEXT NOT NULL UNIQUE,
+          ClubID   INTEGER REFERENCES Clubs(ClubID)
         );
         CREATE TABLE IF NOT EXISTS Clubs (
           ClubID   INTEGER PRIMARY KEY,
@@ -42,7 +43,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS Players (
           PlayerID      INTEGER PRIMARY KEY,
           PlayerName    TEXT NOT NULL,
-          PlayerSurname TEXT
+          PlayerSurname TEXT,
+          TeamID        INTEGER REFERENCES Teams(TeamID)
         );
         CREATE TABLE IF NOT EXISTS Tournaments (
           TournamentID       INTEGER PRIMARY KEY,
@@ -70,9 +72,15 @@ def init_db():
             conn.execute("ALTER TABLE Matches ADD COLUMN TournamentID INTEGER")
         if "MatchDate" not in cols:
             conn.execute("ALTER TABLE Matches ADD COLUMN MatchDate TEXT")
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(Teams)")]
+        if "ClubID" not in cols:
+            conn.execute("ALTER TABLE Teams ADD COLUMN ClubID INTEGER")
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(Players)")]
+        if "TeamID" not in cols:
+            conn.execute("ALTER TABLE Players ADD COLUMN TeamID INTEGER")
 
 
-# ------------------------------------------------------------------ theme helpers
+# ------------------------------------------------------------------ helpers
 def center_window(win, width, height):
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
     win.geometry(f"{width}x{height}+{(sw - width) // 2}+{(sh - height) // 3}")
@@ -81,24 +89,18 @@ def center_window(win, width, height):
 def apply_theme(win):
     style = ttk.Style(win)
     style.theme_use("clam")
-
-    style.configure("Treeview",
-                    background=SURFACE, fieldbackground=SURFACE,
+    style.configure("Treeview", background=SURFACE, fieldbackground=SURFACE,
                     foreground=FG, rowheight=26, borderwidth=0, font=F_BODY)
-    style.configure("Treeview.Heading",
-                    background=SURFACE_2, foreground=MUTED,
+    style.configure("Treeview.Heading", background=SURFACE_2, foreground=MUTED,
                     relief="flat", borderwidth=0,
                     font=(FONT, 9, "bold"), padding=(10, 7))
     style.map("Treeview.Heading", background=[("active", BORDER)])
-    style.map("Treeview",
-              background=[("selected", ACCENT)],
+    style.map("Treeview", background=[("selected", ACCENT)],
               foreground=[("selected", "#ffffff")])
-
-    style.configure("Vertical.TScrollbar",
-                    background=SURFACE_2, troughcolor=BG, bordercolor=BG,
-                    arrowcolor=MUTED, relief="flat", borderwidth=0)
+    style.configure("Vertical.TScrollbar", background=SURFACE_2,
+                    troughcolor=BG, bordercolor=BG, arrowcolor=MUTED,
+                    relief="flat", borderwidth=0)
     style.map("Vertical.TScrollbar", background=[("active", BORDER)])
-
     style.configure("TCombobox", padding=6, arrowsize=14,
                     fieldbackground=SURFACE, background=SURFACE_2,
                     foreground=FG, arrowcolor=FG, borderwidth=0)
@@ -109,7 +111,6 @@ def apply_theme(win):
               selectforeground=[("readonly", FG)],
               bordercolor=[("focus", ACCENT)],
               arrowcolor=[("active", ACCENT)])
-
     win.option_add("*TCombobox*Listbox.background", SURFACE_2)
     win.option_add("*TCombobox*Listbox.foreground", FG)
     win.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
@@ -123,12 +124,10 @@ def make_button(parent, text, command, accent=False, danger=False, anchor="w"):
         base, hover, fg = ACCENT, ACCENT_HI, "#ffffff"
     else:
         base, hover, fg = SURFACE_2, BORDER, FG
-
     btn = tk.Button(parent, text=text, command=command,
                     bg=base, fg=fg, activebackground=hover, activeforeground=fg,
                     relief="flat", bd=0, highlightthickness=0,
-                    anchor=anchor, padx=14, pady=8,
-                    cursor="hand2", font=F_BODY)
+                    anchor=anchor, padx=14, pady=8, cursor="hand2", font=F_BODY)
     btn.bind("<Enter>", lambda e: btn.configure(bg=hover))
     btn.bind("<Leave>", lambda e: btn.configure(bg=base))
     return btn
@@ -136,16 +135,13 @@ def make_button(parent, text, command, accent=False, danger=False, anchor="w"):
 
 def make_small_button(parent, text, command, danger=False):
     if danger:
-        base, hover = DANGER_BG, DANGER
-        fg = "#ffffff"
+        base, hover, fg = DANGER_BG, DANGER, "#ffffff"
     else:
-        base, hover = SURFACE_2, BORDER
-        fg = FG
+        base, hover, fg = SURFACE_2, BORDER, FG
     btn = tk.Button(parent, text=text, command=command,
                     bg=base, fg=fg, activebackground=hover, activeforeground=fg,
                     relief="flat", bd=0, highlightthickness=0,
-                    anchor="w", padx=10, pady=5,
-                    cursor="hand2", font=F_SMALL)
+                    anchor="w", padx=10, pady=5, cursor="hand2", font=F_SMALL)
     btn.bind("<Enter>", lambda e: btn.configure(bg=hover))
     btn.bind("<Leave>", lambda e: btn.configure(bg=base))
     return btn
@@ -168,28 +164,24 @@ init_db()
 root = Tk()
 root.title("Tchoukball Stats")
 root.configure(bg=BG)
-center_window(root, 1080, 820)
-root.minsize(960, 720)
+center_window(root, 1080, 860)
+root.minsize(960, 740)
 apply_theme(root)
 
-# --- header
 header = tk.Frame(root, bg=BG)
 header.pack(fill="x", padx=22, pady=(18, 10))
 tk.Label(header, text="Tchoukball Stats", bg=BG, fg=FG,
          font=(FONT, 20, "bold")).pack(anchor="w")
 tk.Label(header, text="Manage teams, matches and tournaments.",
          bg=BG, fg=MUTED, font=F_SMALL).pack(anchor="w", pady=(2, 0))
-
 tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=22)
 
-# --- status bar (packed early so it's pinned to bottom)
 status_var = StringVar()
 status_lbl = tk.Label(root, textvariable=status_var, bg=BG, fg=MUTED,
                       font=F_SMALL, anchor="w", padx=22, pady=6)
 status_lbl.pack(fill="x", side="bottom")
 
 _status_job = None
-
 def set_status(message, error=False):
     global _status_job
     status_var.set(message)
@@ -205,7 +197,7 @@ def _clear_status():
 
 
 # ------------------------------------------------------------------ table viewer
-def show_table(title, query, columns):
+def show_table(title, query, columns, compare_kind=None):
     with sqlite3.connect(DB) as conn:
         rows = conn.execute(query).fetchall()
 
@@ -223,9 +215,12 @@ def show_table(title, query, columns):
              bg=BG, fg=MUTED, font=F_SMALL).pack(side="right")
 
     shell = tk.Frame(win, bg=BORDER)
-    shell.pack(fill="both", expand=True, padx=22, pady=(0, 20))
+    shell.pack(fill="both", expand=True, padx=22,
+               pady=(0, 10) if compare_kind else (0, 20))
 
-    tree = ttk.Treeview(shell, columns=columns, show="headings")
+    selectmode = "extended" if compare_kind else "browse"
+    tree = ttk.Treeview(shell, columns=columns, show="headings",
+                        selectmode=selectmode)
     scroll = ttk.Scrollbar(shell, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=scroll.set)
     scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
@@ -265,13 +260,28 @@ def show_table(title, query, columns):
             tree.item(iid, tags=("row_even" if idx % 2 == 0 else "row_odd",))
         tree.heading(col, command=lambda: sort_by(col, not descending))
 
+    if compare_kind:
+        bar = tk.Frame(win, bg=BG)
+        bar.pack(fill="x", padx=22, pady=(0, 20))
+        def do_compare():
+            sel = tree.selection()
+            if len(sel) != 2:
+                messagebox.showinfo("Select two rows",
+                                    "Select exactly two rows to compare.",
+                                    parent=win)
+                return
+            ids = [int(tree.item(iid, "values")[0]) for iid in sel]
+            open_compare(compare_kind, preselected=(ids[0], ids[1]))
+        make_small_button(bar, "Compare selected", do_compare).pack(side="right")
+        make_small_button(bar, "Close", win.destroy).pack(side="right", padx=(0, 8))
+
     tree.bind("<MouseWheel>",
               lambda e: tree.yview_scroll(-1 if e.delta > 0 else 1, "units"))
     tree.bind("<Button-4>", lambda e: tree.yview_scroll(-1, "units"))
     tree.bind("<Button-5>", lambda e: tree.yview_scroll(1, "units"))
 
 
-# ------------------------------------------------------------------ insert helper
+# ------------------------------------------------------------------ insert
 def insert_row(query, values, success_message):
     try:
         with sqlite3.connect(DB) as conn:
@@ -292,13 +302,11 @@ def make_form(title, subtitle, fields, on_submit):
     win.configure(bg=BG)
     win.resizable(False, False)
     win.bind("<Escape>", lambda e: win.destroy())
-
     body = tk.Frame(win, bg=BG, padx=24, pady=22)
     body.pack(fill="both", expand=True)
     tk.Label(body, text=title, bg=BG, fg=FG, font=F_TITLE).pack(anchor="w")
     tk.Label(body, text=subtitle, bg=BG, fg=MUTED, font=F_SMALL
              ).pack(anchor="w", pady=(2, 6))
-
     widgets = {}
     for field in fields:
         tk.Label(body, text=field["label"], bg=BG, fg=MUTED, font=F_SMALL
@@ -314,7 +322,6 @@ def make_form(title, subtitle, fields, on_submit):
                          font=F_BODY, width=36)
             w.pack(fill="x", ipady=7)
         widgets[field["key"]] = w
-
     def submit():
         values = {}
         for field in fields:
@@ -329,7 +336,6 @@ def make_form(title, subtitle, fields, on_submit):
             values[field["key"]] = value
         if on_submit(values) is not False:
             win.destroy()
-
     actions = tk.Frame(body, bg=BG)
     actions.pack(fill="x", pady=(20, 0))
     make_button(actions, "Save", submit, accent=True, anchor="center"
@@ -339,13 +345,22 @@ def make_form(title, subtitle, fields, on_submit):
     win.bind("<Return>", lambda e: submit())
 
 
-# ------------------------------------------------------------------ ADD handlers
 def add_team():
+    with sqlite3.connect(DB) as conn:
+        clubs = conn.execute("SELECT ClubID, ClubName FROM Clubs "
+                             "ORDER BY ClubName").fetchall()
+    club_opts = ["(none)"] + [f"{cid} · {cname}" for cid, cname in clubs]
+    club_of = {f"{cid} · {cname}": cid for cid, cname in clubs}
+
+    def save(v):
+        cid = None if v["club"] == "(none)" else club_of[v["club"]]
+        return insert_row("INSERT INTO Teams (TeamName, ClubID) VALUES (?, ?)",
+                          (v["name"], cid), f'Team "{v["name"]}" added.')
+
     make_form("New team", "Teams are the sides that play matches.",
-              [{"label": "Team name", "key": "name", "required": True}],
-              lambda v: insert_row(
-                  "INSERT INTO Teams (TeamName) VALUES (?)",
-                  (v["name"],), f'Team "{v["name"]}" added.'))
+              [{"label": "Team name", "key": "name", "required": True},
+               {"label": "Club (optional)", "key": "club", "values": club_opts}],
+              save)
 
 
 def add_club():
@@ -357,12 +372,24 @@ def add_club():
 
 
 def add_player():
-    make_form("New player", "First name is required, surname is optional.",
+    with sqlite3.connect(DB) as conn:
+        teams = conn.execute("SELECT TeamID, TeamName FROM Teams "
+                             "ORDER BY TeamName").fetchall()
+    team_opts = ["(none)"] + [f"{tid} · {tname}" for tid, tname in teams]
+    team_of = {f"{tid} · {tname}": tid for tid, tname in teams}
+
+    def save(v):
+        tid = None if v["team"] == "(none)" else team_of[v["team"]]
+        return insert_row(
+            "INSERT INTO Players (PlayerName, PlayerSurname, TeamID) "
+            "VALUES (?, ?, ?)",
+            (v["fname"], v["sname"], tid), f'Player "{v["fname"]}" added.')
+
+    make_form("New player", "First name required; team optional.",
               [{"label": "First name", "key": "fname", "required": True},
-               {"label": "Surname", "key": "sname"}],
-              lambda v: insert_row(
-                  "INSERT INTO Players (PlayerName, PlayerSurname) VALUES (?, ?)",
-                  (v["fname"], v["sname"]), f'Player "{v["fname"]}" added.'))
+               {"label": "Surname", "key": "sname"},
+               {"label": "Team (optional)", "key": "team", "values": team_opts}],
+              save)
 
 
 def add_tournament():
@@ -379,27 +406,22 @@ def add_tournament():
 
 def add_match():
     with sqlite3.connect(DB) as conn:
-        teams = conn.execute(
-            "SELECT TeamID, TeamName FROM Teams ORDER BY TeamName").fetchall()
-        tournaments = conn.execute(
-            "SELECT TournamentID, TournamentName FROM Tournaments "
-            "ORDER BY TournamentName").fetchall()
+        teams = conn.execute("SELECT TeamID, TeamName FROM Teams "
+                             "ORDER BY TeamName").fetchall()
+        tournaments = conn.execute("SELECT TournamentID, TournamentName "
+                                   "FROM Tournaments ORDER BY TournamentName"
+                                   ).fetchall()
     if not teams:
         messagebox.showinfo("No teams", "Add at least one team first.")
         return
-
     team_of = {f"{tid} · {name}": tid for tid, name in teams}
     tourn_of = {f"{tid} · {name}": tid for tid, name in tournaments}
-
     def save(v):
         if v["home"] == v["away"]:
             messagebox.showwarning("Invalid match",
                                    "Home and away teams must be different.")
             return False
-        if v["tournament"] == "(none)":
-            tid = None
-        else:
-            tid = tourn_of[v["tournament"]]
+        tid = None if v["tournament"] == "(none)" else tourn_of[v["tournament"]]
         scores = []
         for key in ("hs", "as"):
             raw = v[key]
@@ -415,10 +437,8 @@ def add_match():
             (team_of[v["home"]], team_of[v["away"]],
              v["loc"] or None, scores[0], scores[1], tid, v["date"] or None),
             "Match added.")
-
-    make_form("New match", "Assign the match to a tournament and record the score.",
-              [{"label": "Tournament",
-                "key": "tournament",
+    make_form("New match", "Assign to a tournament and record the final score.",
+              [{"label": "Tournament", "key": "tournament",
                 "values": ["(none)"] + list(tourn_of)},
                {"label": "Home team", "key": "home",
                 "values": list(team_of), "required": True},
@@ -449,10 +469,8 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
 
     content = tk.Frame(win, bg=BG)
     content.pack(fill="both", expand=True, padx=22, pady=(0, 20))
-
     actions = tk.Frame(content, bg=BG)
     actions.pack(side="bottom", fill="x", pady=(14, 0))
-
     form = tk.Frame(content, bg=BG)
     form.pack(side="bottom", fill="x", pady=(14, 0))
     form.columnconfigure(0, weight=1)
@@ -460,7 +478,6 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
 
     list_shell = tk.Frame(content, bg=BORDER)
     list_shell.pack(side="top", fill="both", expand=True)
-
     tree = ttk.Treeview(list_shell, columns=list_columns, show="headings",
                         selectmode="browse")
     scroll = ttk.Scrollbar(list_shell, orient="vertical", command=tree.yview)
@@ -473,7 +490,6 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
         tree.column(col, width=width, minwidth=50, anchor="w")
     if list_columns:
         tree.column(list_columns[-1], stretch=True)
-
     tree.tag_configure("row_even", background=SURFACE)
     tree.tag_configure("row_odd",  background=STRIPE)
 
@@ -521,11 +537,11 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
             raw = row[i] if i < len(row) else None
             if field.get("widget") == "combo":
                 w.set("")
-                if raw is not None:
-                    for disp, val in field["options"]:
-                        if str(val) == str(raw):
-                            w.set(disp)
-                            break
+                for disp, val in field["options"]:
+                    if (raw is None and val is None) or \
+                       (raw is not None and str(val) == str(raw)):
+                        w.set(disp)
+                        break
             else:
                 w.delete(0, "end")
                 if raw is not None:
@@ -553,13 +569,11 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
                     values[field["key"]] = val
             else:
                 values[field["key"]] = w.get().strip()
-
             if field.get("required") and values[field["key"]] in (None, ""):
                 messagebox.showwarning("Missing value",
                                        f"{field['label']} is required.",
                                        parent=win)
                 return
-
             if field.get("numeric"):
                 v = values[field["key"]]
                 if v == "" or v is None:
@@ -573,13 +587,11 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
                             f"{field['label']} must be a whole number.",
                             parent=win)
                         return
-
         if validator:
             err = validator(values)
             if err:
                 messagebox.showwarning("Invalid input", err, parent=win)
                 return
-
         set_clause = ", ".join(f"{f['column']} = ?" for f in fields)
         sql = f"UPDATE {table} SET {set_clause} WHERE {id_col} = ?"
         params = tuple(values[f["key"]] for f in fields) + (current_id[0],)
@@ -590,7 +602,6 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
             set_status(f"Could not save: {exc}", error=True)
             messagebox.showerror("Database error", str(exc), parent=win)
             return
-
         saved_id = current_id[0]
         set_status("Record updated.")
         root.event_generate("<<DataChanged>>")
@@ -659,17 +670,27 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
         populate()
 
 
-# ------------------------------------------------------------------ EDIT handlers
+# ------------------------------------------------------------------ edit handlers
 def edit_team():
+    with sqlite3.connect(DB) as conn:
+        clubs = conn.execute("SELECT ClubID, ClubName FROM Clubs "
+                             "ORDER BY ClubName").fetchall()
+    club_opts = [("(none)", None)] + [(cname, cid) for cid, cname in clubs]
     open_editor(
         title="Edit teams",
-        subtitle="Select a team, change its name, then save.",
+        subtitle="Select a team, change its details, then save.",
         table="Teams", id_col="TeamID",
-        list_query="SELECT TeamID, TeamName FROM Teams ORDER BY TeamName",
-        list_columns=["ID", "Team name"], list_col_widths=[70, 400],
-        fetch_query="SELECT TeamName FROM Teams WHERE TeamID = ?",
-        fields=[{"label": "Team name", "key": "name",
-                 "column": "TeamName", "required": True}],
+        list_query="""SELECT t.TeamID, t.TeamName, COALESCE(c.ClubName, '—')
+                      FROM Teams t LEFT JOIN Clubs c ON t.ClubID = c.ClubID
+                      ORDER BY t.TeamName""",
+        list_columns=["ID", "Team", "Club"], list_col_widths=[60, 220, 200],
+        fetch_query="SELECT TeamName, ClubID FROM Teams WHERE TeamID = ?",
+        fields=[
+            {"label": "Team name", "key": "name",
+             "column": "TeamName", "required": True},
+            {"label": "Club", "key": "club", "column": "ClubID",
+             "widget": "combo", "options": club_opts},
+        ],
     )
 
 
@@ -687,20 +708,29 @@ def edit_club():
 
 
 def edit_player():
+    with sqlite3.connect(DB) as conn:
+        teams = conn.execute("SELECT TeamID, TeamName FROM Teams "
+                             "ORDER BY TeamName").fetchall()
+    team_opts = [("(none)", None)] + [(tname, tid) for tid, tname in teams]
     open_editor(
         title="Edit players",
-        subtitle="Select a player, update the name, then save.",
+        subtitle="Select a player, update the details, then save.",
         table="Players", id_col="PlayerID",
-        list_query="""SELECT PlayerID, PlayerName, COALESCE(PlayerSurname, '')
-                      FROM Players ORDER BY PlayerName, PlayerSurname""",
-        list_columns=["ID", "First name", "Surname"],
-        list_col_widths=[70, 200, 200],
-        fetch_query="SELECT PlayerName, PlayerSurname "
+        list_query="""SELECT p.PlayerID, p.PlayerName,
+                             COALESCE(p.PlayerSurname, ''),
+                             COALESCE(t.TeamName, '—')
+                      FROM Players p LEFT JOIN Teams t ON p.TeamID = t.TeamID
+                      ORDER BY p.PlayerName, p.PlayerSurname""",
+        list_columns=["ID", "First", "Surname", "Team"],
+        list_col_widths=[60, 170, 170, 170],
+        fetch_query="SELECT PlayerName, PlayerSurname, TeamID "
                     "FROM Players WHERE PlayerID = ?",
         fields=[
             {"label": "First name", "key": "fname",
              "column": "PlayerName", "required": True},
             {"label": "Surname", "key": "sname", "column": "PlayerSurname"},
+            {"label": "Team", "key": "team", "column": "TeamID",
+             "widget": "combo", "options": team_opts},
         ],
     )
 
@@ -713,10 +743,12 @@ def edit_tournament():
         list_query="""SELECT TournamentID, TournamentName,
                              COALESCE(TournamentDate, ''),
                              COALESCE(TournamentLocation, '')
-                      FROM Tournaments ORDER BY TournamentDate DESC, TournamentName""",
+                      FROM Tournaments
+                      ORDER BY TournamentDate DESC, TournamentName""",
         list_columns=["ID", "Name", "Date", "Location"],
         list_col_widths=[60, 220, 130, 220],
-        fetch_query="""SELECT TournamentName, TournamentDate, TournamentLocation
+        fetch_query="""SELECT TournamentName, TournamentDate,
+                              TournamentLocation
                        FROM Tournaments WHERE TournamentID = ?""",
         fields=[
             {"label": "Name", "key": "name", "column": "TournamentName",
@@ -730,23 +762,20 @@ def edit_tournament():
 
 def edit_match():
     with sqlite3.connect(DB) as conn:
-        teams = conn.execute(
-            "SELECT TeamID, TeamName FROM Teams ORDER BY TeamName").fetchall()
-        tournaments = conn.execute(
-            "SELECT TournamentID, TournamentName FROM Tournaments "
-            "ORDER BY TournamentName").fetchall()
+        teams = conn.execute("SELECT TeamID, TeamName FROM Teams "
+                             "ORDER BY TeamName").fetchall()
+        tournaments = conn.execute("SELECT TournamentID, TournamentName "
+                                   "FROM Tournaments ORDER BY TournamentName"
+                                   ).fetchall()
     if not teams:
         messagebox.showinfo("No teams", "Add at least one team first.")
         return
-
     team_opts = [(name, tid) for tid, name in teams]
     tourn_opts = [("(none)", None)] + [(name, tid) for tid, name in tournaments]
-
     def validate(v):
         if v["home"] == v["away"]:
             return "Home and away teams must be different."
         return None
-
     open_editor(
         title="Edit matches",
         subtitle="Select a match, update details, then save.",
@@ -785,20 +814,31 @@ def edit_match():
     )
 
 
-# ------------------------------------------------------------------ BROWSE handlers
+# ------------------------------------------------------------------ browse handlers
 def browse_teams():
-    show_table("Teams", "SELECT * FROM Teams",
-               ["TeamID", "TeamName"])
+    show_table("Teams",
+               """SELECT t.TeamID, t.TeamName, COALESCE(c.ClubName, '—')
+                  FROM Teams t LEFT JOIN Clubs c ON t.ClubID = c.ClubID
+                  ORDER BY t.TeamName""",
+               ["ID", "Team", "Club"], compare_kind="teams")
 
 
 def browse_clubs():
-    show_table("Clubs", "SELECT * FROM Clubs",
-               ["ClubID", "ClubName"])
+    show_table("Clubs",
+               """SELECT c.ClubID, c.ClubName, COUNT(t.TeamID)
+                  FROM Clubs c LEFT JOIN Teams t ON c.ClubID = t.ClubID
+                  GROUP BY c.ClubID ORDER BY c.ClubName""",
+               ["ID", "Club", "Teams"], compare_kind="clubs")
 
 
 def browse_players():
-    show_table("Players", "SELECT * FROM Players",
-               ["PlayerID", "PlayerName", "PlayerSurname"])
+    show_table("Players",
+               """SELECT p.PlayerID, p.PlayerName,
+                         COALESCE(p.PlayerSurname, ''),
+                         COALESCE(t.TeamName, '—')
+                  FROM Players p LEFT JOIN Teams t ON p.TeamID = t.TeamID
+                  ORDER BY p.PlayerName, p.PlayerSurname""",
+               ["ID", "First name", "Surname", "Team"], compare_kind="players")
 
 
 def browse_tournaments():
@@ -821,11 +861,11 @@ def browse_matches():
                   JOIN Teams at ON m.MatchAway = at.TeamID
                   LEFT JOIN Tournaments t ON m.TournamentID = t.TournamentID
                   ORDER BY m.MatchID DESC""",
-               ["ID", "Home", "Away", "Location", "H", "A", "Tournament",
-                "Date"])
+               ["ID", "Home", "Away", "Location", "H", "A", "Tournament", "Date"],
+               compare_kind="matches")
 
 
-# ------------------------------------------------------------------ REMOVER window
+# ------------------------------------------------------------------ remover window
 def open_remover(title, subtitle, table, id_col, list_query,
                  list_columns, list_col_widths):
     win = Toplevel(root)
@@ -840,13 +880,10 @@ def open_remover(title, subtitle, table, id_col, list_query,
     tk.Label(head, text=title, bg=BG, fg=FG, font=F_TITLE).pack(anchor="w")
     tk.Label(head, text=subtitle, bg=BG, fg=MUTED, font=F_SMALL
              ).pack(anchor="w", pady=(2, 0))
-
     content = tk.Frame(win, bg=BG)
     content.pack(fill="both", expand=True, padx=22, pady=(0, 20))
-
     actions = tk.Frame(content, bg=BG)
     actions.pack(side="bottom", fill="x", pady=(14, 0))
-
     list_shell = tk.Frame(content, bg=BORDER)
     list_shell.pack(side="top", fill="both", expand=True)
 
@@ -856,13 +893,11 @@ def open_remover(title, subtitle, table, id_col, list_query,
     tree.configure(yscrollcommand=scroll.set)
     scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
     tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
-
     for col, width in zip(list_columns, list_col_widths):
         tree.heading(col, text=col, anchor="w")
         tree.column(col, width=width, minwidth=50, anchor="w")
     if list_columns:
         tree.column(list_columns[-1], stretch=True)
-
     tree.tag_configure("row_even", background=SURFACE)
     tree.tag_configure("row_odd",  background=STRIPE)
 
@@ -895,8 +930,7 @@ def open_remover(title, subtitle, table, id_col, list_query,
             return
         try:
             with sqlite3.connect(DB) as conn:
-                conn.execute(f"DELETE FROM {table} WHERE {id_col} = ?",
-                             (rid,))
+                conn.execute(f"DELETE FROM {table} WHERE {id_col} = ?", (rid,))
         except sqlite3.IntegrityError as exc:
             set_status(f"Could not remove: {exc}", error=True)
             messagebox.showerror(
@@ -912,117 +946,461 @@ def open_remover(title, subtitle, table, id_col, list_query,
                 danger=True, anchor="center").pack(side="right")
     make_button(actions, "Close", win.destroy, anchor="center"
                 ).pack(side="right", padx=(0, 8))
-
     tree.bind("<MouseWheel>",
               lambda e: tree.yview_scroll(-1 if e.delta > 0 else 1, "units"))
     tree.bind("<Button-4>", lambda e: tree.yview_scroll(-1, "units"))
     tree.bind("<Button-5>", lambda e: tree.yview_scroll(1, "units"))
     win.bind("<Delete>", lambda e: remove())
-
     load_list()
 
 
-# ------------------------------------------------------------------ REMOVE handlers
 def remove_team():
-    open_remover(
-        "Remove teams",
-        "Teams used in a match must be unreferenced first.",
-        table="Teams", id_col="TeamID",
-        list_query="SELECT TeamID, TeamName FROM Teams ORDER BY TeamName",
-        list_columns=["ID", "Team name"], list_col_widths=[70, 400],
-    )
+    open_remover("Remove teams",
+                 "Teams used in a match must be unreferenced first.",
+                 table="Teams", id_col="TeamID",
+                 list_query="SELECT TeamID, TeamName FROM Teams ORDER BY TeamName",
+                 list_columns=["ID", "Team name"], list_col_widths=[70, 400])
 
 
 def remove_club():
-    open_remover(
-        "Remove clubs",
-        "Select a club, then click Remove selected.",
-        table="Clubs", id_col="ClubID",
-        list_query="SELECT ClubID, ClubName FROM Clubs ORDER BY ClubName",
-        list_columns=["ID", "Club name"], list_col_widths=[70, 400],
-    )
+    open_remover("Remove clubs", "Select a club, then click Remove selected.",
+                 table="Clubs", id_col="ClubID",
+                 list_query="SELECT ClubID, ClubName FROM Clubs ORDER BY ClubName",
+                 list_columns=["ID", "Club name"], list_col_widths=[70, 400])
 
 
 def remove_player():
-    open_remover(
-        "Remove players",
-        "Select a player, then click Remove selected.",
-        table="Players", id_col="PlayerID",
-        list_query="""SELECT PlayerID, PlayerName, COALESCE(PlayerSurname, '')
-                      FROM Players ORDER BY PlayerName, PlayerSurname""",
-        list_columns=["ID", "First name", "Surname"],
-        list_col_widths=[70, 200, 200],
-    )
+    open_remover("Remove players", "Select a player, then click Remove selected.",
+                 table="Players", id_col="PlayerID",
+                 list_query="""SELECT PlayerID, PlayerName,
+                                       COALESCE(PlayerSurname, '')
+                                FROM Players ORDER BY PlayerName, PlayerSurname""",
+                 list_columns=["ID", "First name", "Surname"],
+                 list_col_widths=[70, 200, 200])
 
 
 def remove_tournament():
-    open_remover(
-        "Remove tournaments",
-        "Tournaments used by a match must be unreferenced first.",
-        table="Tournaments", id_col="TournamentID",
-        list_query="""SELECT TournamentID, TournamentName,
-                             COALESCE(TournamentDate, '')
-                      FROM Tournaments ORDER BY TournamentDate DESC""",
-        list_columns=["ID", "Name", "Date"],
-        list_col_widths=[60, 260, 140],
-    )
+    open_remover("Remove tournaments",
+                 "Tournaments used by a match must be unreferenced first.",
+                 table="Tournaments", id_col="TournamentID",
+                 list_query="""SELECT TournamentID, TournamentName,
+                                       COALESCE(TournamentDate, '')
+                                FROM Tournaments ORDER BY TournamentDate DESC""",
+                 list_columns=["ID", "Name", "Date"],
+                 list_col_widths=[60, 260, 140])
 
 
 def remove_match():
-    open_remover(
-        "Remove matches",
-        "Select a match, then click Remove selected.",
-        table="Matches", id_col="MatchID",
-        list_query="""SELECT m.MatchID,
-                             COALESCE(m.MatchDate, '-'),
-                             ht.TeamName, at.TeamName,
-                             COALESCE(m.MatchHScore, '-') || ' – ' ||
-                             COALESCE(m.MatchAScore, '-')
-                      FROM Matches m
-                      JOIN Teams ht ON m.MatchHome = ht.TeamID
-                      JOIN Teams at ON m.MatchAway = at.TeamID
-                      ORDER BY m.MatchID DESC""",
-        list_columns=["ID", "Date", "Home", "Away", "Score"],
-        list_col_widths=[55, 110, 140, 140, 90],
-    )
+    open_remover("Remove matches", "Select a match, then click Remove selected.",
+                 table="Matches", id_col="MatchID",
+                 list_query="""SELECT m.MatchID, COALESCE(m.MatchDate, '-'),
+                                      ht.TeamName, at.TeamName,
+                                      COALESCE(m.MatchHScore, '-') || ' – ' ||
+                                      COALESCE(m.MatchAScore, '-')
+                               FROM Matches m
+                               JOIN Teams ht ON m.MatchHome = ht.TeamID
+                               JOIN Teams at ON m.MatchAway = at.TeamID
+                               ORDER BY m.MatchID DESC""",
+                 list_columns=["ID", "Date", "Home", "Away", "Score"],
+                 list_col_widths=[55, 110, 140, 140, 90])
+
+
+# ------------------------------------------------------------------ comparison
+def render_comparison_table(parent, header_a, header_b, rows):
+    """rows = list of (label, value_a, value_b)"""
+    hdr = tk.Frame(parent, bg=SURFACE)
+    hdr.pack(fill="x", pady=(0, 6))
+    tk.Label(hdr, text="", bg=SURFACE, width=22).pack(side="left")
+    tk.Label(hdr, text=header_a, bg=SURFACE, fg=ACCENT,
+             font=(FONT, 12, "bold")).pack(side="left", fill="x", expand=True)
+    tk.Label(hdr, text=header_b, bg=SURFACE, fg=ACCENT,
+             font=(FONT, 12, "bold")).pack(side="left", fill="x", expand=True)
+    tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", pady=(0, 4))
+
+    for i, (label, va, vb) in enumerate(rows):
+        bg_row = STRIPE if i % 2 else SURFACE
+        r = tk.Frame(parent, bg=bg_row)
+        r.pack(fill="x", pady=1)
+        tk.Label(r, text=label, bg=bg_row, fg=MUTED, font=F_BODY,
+                 anchor="w", padx=10, pady=6, width=22
+                 ).pack(side="left")
+        tk.Label(r, text=str(va), bg=bg_row, fg=FG, font=F_BODY,
+                 anchor="center").pack(side="left", fill="x", expand=True)
+        tk.Label(r, text=str(vb), bg=bg_row, fg=FG, font=F_BODY,
+                 anchor="center").pack(side="left", fill="x", expand=True)
+
+
+def render_team_comparison(parent, a_id, b_id):
+    with sqlite3.connect(DB) as conn:
+        a_name = conn.execute("SELECT TeamName FROM Teams WHERE TeamID=?",
+                              (a_id,)).fetchone()[0]
+        b_name = conn.execute("SELECT TeamName FROM Teams WHERE TeamID=?",
+                              (b_id,)).fetchone()[0]
+
+        def record(tid):
+            return conn.execute("""
+                SELECT COUNT(*),
+                       SUM(CASE WHEN (MatchHome=? AND MatchHScore>MatchAScore)
+                                  OR (MatchAway=? AND MatchAScore>MatchHScore)
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN MatchHScore=MatchAScore
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN (MatchHome=? AND MatchHScore<MatchAScore)
+                                  OR (MatchAway=? AND MatchAScore<MatchHScore)
+                                THEN 1 ELSE 0 END),
+                       COALESCE(SUM(CASE WHEN MatchHome=? THEN MatchHScore
+                                         WHEN MatchAway=? THEN MatchAScore
+                                         ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN MatchHome=? THEN MatchAScore
+                                         WHEN MatchAway=? THEN MatchHScore
+                                         ELSE 0 END), 0)
+                FROM Matches
+                WHERE (MatchHome=? OR MatchAway=?)
+                  AND MatchHScore IS NOT NULL AND MatchAScore IS NOT NULL
+            """, (tid, tid, tid, tid, tid, tid, tid, tid, tid, tid)).fetchone()
+
+        a = record(a_id)
+        b = record(b_id)
+
+        h2h = conn.execute("""
+            SELECT COUNT(*),
+                   SUM(CASE WHEN (MatchHome=? AND MatchHScore>MatchAScore)
+                              OR (MatchAway=? AND MatchAScore>MatchHScore)
+                            THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN MatchHScore=MatchAScore
+                            THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN (MatchHome=? AND MatchHScore<MatchAScore)
+                              OR (MatchAway=? AND MatchAScore<MatchHScore)
+                            THEN 1 ELSE 0 END)
+            FROM Matches
+            WHERE ((MatchHome=? AND MatchAway=?)
+                OR (MatchHome=? AND MatchAway=?))
+              AND MatchHScore IS NOT NULL AND MatchAScore IS NOT NULL
+        """, (a_id, a_id, a_id, a_id, b_id, b_id, a_id)).fetchone()
+
+    def sd(v):
+        return 0 if v is None else v
+
+    rows = [
+        ("Matches played",     sd(a[0]), sd(b[0])),
+        ("Wins",               sd(a[1]), sd(b[1])),
+        ("Draws",              sd(a[2]), sd(b[2])),
+        ("Losses",             sd(a[3]), sd(b[3])),
+        ("Points scored",      sd(a[4]), sd(b[4])),
+        ("Points conceded",    sd(a[5]), sd(b[5])),
+        ("Point difference",   sd(a[4]) - sd(a[5]), sd(b[4]) - sd(b[5])),
+        ("Head-to-head matches", sd(h2h[0]), sd(h2h[0])),
+        ("Head-to-head wins",  sd(h2h[1]), sd(h2h[3])),
+        ("Head-to-head draws", sd(h2h[2]), sd(h2h[2])),
+    ]
+    render_comparison_table(parent, a_name, b_name, rows)
+
+
+def render_club_comparison(parent, a_id, b_id):
+    with sqlite3.connect(DB) as conn:
+        a_name = conn.execute("SELECT ClubName FROM Clubs WHERE ClubID=?",
+                              (a_id,)).fetchone()[0]
+        b_name = conn.execute("SELECT ClubName FROM Clubs WHERE ClubID=?",
+                              (b_id,)).fetchone()[0]
+
+        def club_stats(cid):
+            team_ids = [r[0] for r in conn.execute(
+                "SELECT TeamID FROM Teams WHERE ClubID=?", (cid,)).fetchall()]
+            if not team_ids:
+                return (0, 0, 0, 0, 0, 0)
+            ph = ",".join("?" * len(team_ids))
+            n_players = conn.execute(
+                f"SELECT COUNT(*) FROM Players WHERE TeamID IN ({ph})",
+                team_ids).fetchone()[0]
+            row = conn.execute(f"""
+                SELECT COUNT(*),
+                       SUM(CASE WHEN (MatchHome IN ({ph})
+                                      AND MatchHScore>MatchAScore)
+                                  OR (MatchAway IN ({ph})
+                                      AND MatchAScore>MatchHScore)
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN MatchHScore=MatchAScore
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN (MatchHome IN ({ph})
+                                      AND MatchHScore<MatchAScore)
+                                  OR (MatchAway IN ({ph})
+                                      AND MatchAScore<MatchHScore)
+                                THEN 1 ELSE 0 END)
+                FROM Matches
+                WHERE (MatchHome IN ({ph}) OR MatchAway IN ({ph}))
+                  AND MatchHScore IS NOT NULL AND MatchAScore IS NOT NULL
+            """, team_ids * 6).fetchone()
+            return (len(team_ids), n_players) + row
+
+        a = club_stats(a_id)
+        b = club_stats(b_id)
+
+    def sd(v):
+        return 0 if v is None else v
+
+    rows = [
+        ("Teams in club",     a[0], b[0]),
+        ("Players in club",   a[1], b[1]),
+        ("Matches played",    sd(a[2]), sd(b[2])),
+        ("Wins",              sd(a[3]), sd(b[3])),
+        ("Draws",             sd(a[4]), sd(b[4])),
+        ("Losses",            sd(a[5]), sd(b[5])),
+    ]
+    render_comparison_table(parent, a_name, b_name, rows)
+
+
+def render_player_comparison(parent, a_id, b_id):
+    with sqlite3.connect(DB) as conn:
+        def get_player(pid):
+            return conn.execute("""
+                SELECT p.PlayerName, COALESCE(p.PlayerSurname, ''),
+                       COALESCE(t.TeamName, '—'), p.TeamID
+                FROM Players p LEFT JOIN Teams t ON p.TeamID = t.TeamID
+                WHERE p.PlayerID=?
+            """, (pid,)).fetchone()
+
+        def team_record(tid):
+            if tid is None:
+                return (0, 0, 0, 0)
+            return conn.execute("""
+                SELECT COUNT(*),
+                       SUM(CASE WHEN (MatchHome=? AND MatchHScore>MatchAScore)
+                                  OR (MatchAway=? AND MatchAScore>MatchHScore)
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN MatchHScore=MatchAScore
+                                THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN (MatchHome=? AND MatchHScore<MatchAScore)
+                                  OR (MatchAway=? AND MatchAScore<MatchHScore)
+                                THEN 1 ELSE 0 END)
+                FROM Matches
+                WHERE (MatchHome=? OR MatchAway=?)
+                  AND MatchHScore IS NOT NULL AND MatchAScore IS NOT NULL
+            """, (tid, tid, tid, tid, tid, tid)).fetchone()
+
+        a = get_player(a_id)
+        b = get_player(b_id)
+        a_tr = team_record(a[3])
+        b_tr = team_record(b[3])
+
+    def full_name(p):
+        return (p[0] + (" " + p[1] if p[1] else "")).strip()
+
+    def sd(v):
+        return 0 if v is None else v
+
+    rows = [
+        ("Team",               a[2], b[2]),
+        ("Team matches",       sd(a_tr[0]), sd(b_tr[0])),
+        ("Team wins",          sd(a_tr[1]), sd(b_tr[1])),
+        ("Team draws",         sd(a_tr[2]), sd(b_tr[2])),
+        ("Team losses",        sd(a_tr[3]), sd(b_tr[3])),
+        ("Per-player stats",   "not tracked", "not tracked"),
+    ]
+    render_comparison_table(parent, full_name(a), full_name(b), rows)
+
+
+def render_match_comparison(parent, a_id, b_id):
+    with sqlite3.connect(DB) as conn:
+        def get_match(mid):
+            return conn.execute("""
+                SELECT ht.TeamName, at.TeamName,
+                       COALESCE(m.MatchLocation, '—'),
+                       m.MatchHScore, m.MatchAScore,
+                       COALESCE(t.TournamentName, '—'),
+                       COALESCE(m.MatchDate, '—')
+                FROM Matches m
+                JOIN Teams ht ON m.MatchHome = ht.TeamID
+                JOIN Teams at ON m.MatchAway = at.TeamID
+                LEFT JOIN Tournaments t ON m.TournamentID = t.TournamentID
+                WHERE m.MatchID=?
+            """, (mid,)).fetchone()
+        a = get_match(a_id)
+        b = get_match(b_id)
+
+    def score_label(hs, as_):
+        if hs is None or as_ is None:
+            return "—"
+        return f"{hs} – {as_}"
+
+    def margin(hs, as_):
+        if hs is None or as_ is None:
+            return "—"
+        return abs(hs - as_)
+
+    def total(hs, as_):
+        if hs is None or as_ is None:
+            return "—"
+        return hs + as_
+
+    rows = [
+        ("Home team",    a[0], b[0]),
+        ("Away team",    a[1], b[1]),
+        ("Score",        score_label(a[3], a[4]), score_label(b[3], b[4])),
+        ("Total points", total(a[3], a[4]), total(b[3], b[4])),
+        ("Margin",       margin(a[3], a[4]), margin(b[3], b[4])),
+        ("Tournament",   a[5], b[5]),
+        ("Location",     a[2], b[2]),
+        ("Date",         a[6], b[6]),
+    ]
+    header_a = f"Match #{a_id}"
+    header_b = f"Match #{b_id}"
+    render_comparison_table(parent, header_a, header_b, rows)
+
+
+def open_compare(kind, preselected=None):
+    win = Toplevel(root)
+    win.title(f"Compare {kind.title()}")
+    win.configure(bg=BG)
+    center_window(win, 920, 640)
+    win.minsize(760, 520)
+    win.bind("<Escape>", lambda e: win.destroy())
+
+    with sqlite3.connect(DB) as conn:
+        if kind == "teams":
+            options = conn.execute(
+                "SELECT TeamID, TeamName FROM Teams ORDER BY TeamName"
+            ).fetchall()
+        elif kind == "clubs":
+            options = conn.execute(
+                "SELECT ClubID, ClubName FROM Clubs ORDER BY ClubName"
+            ).fetchall()
+        elif kind == "players":
+            options = conn.execute(
+                "SELECT PlayerID, PlayerName || "
+                "' ' || COALESCE(PlayerSurname, '') "
+                "FROM Players ORDER BY PlayerName, PlayerSurname"
+            ).fetchall()
+        else:  # matches
+            options = conn.execute("""
+                SELECT m.MatchID,
+                       COALESCE(m.MatchDate, '?') || ' · ' ||
+                       ht.TeamName || ' vs ' || at.TeamName
+                FROM Matches m
+                JOIN Teams ht ON m.MatchHome = ht.TeamID
+                JOIN Teams at ON m.MatchAway = at.TeamID
+                ORDER BY m.MatchID DESC
+            """).fetchall()
+
+    if len(options) < 2:
+        messagebox.showinfo("Not enough records",
+                            f"Add at least two {kind} to compare.",
+                            parent=win)
+        win.destroy()
+        return
+
+    labels = [f"{oid} · {name}" for oid, name in options]
+    id_of = {f"{oid} · {name}": oid for oid, name in options}
+    id_to_label = dict(zip([o[0] for o in options], labels))
+
+    default_a = labels[0]
+    default_b = labels[1]
+    if preselected:
+        default_a = id_to_label.get(preselected[0], labels[0])
+        default_b = id_to_label.get(preselected[1], labels[1])
+
+    head = tk.Frame(win, bg=BG)
+    head.pack(fill="x", padx=22, pady=(20, 10))
+    tk.Label(head, text=f"Compare {kind.title()}", bg=BG, fg=FG,
+             font=F_TITLE).pack(anchor="w")
+    tk.Label(head, text="Pick two records to see a side-by-side breakdown.",
+             bg=BG, fg=MUTED, font=F_SMALL).pack(anchor="w", pady=(2, 0))
+
+    sel_row = tk.Frame(win, bg=BG)
+    sel_row.pack(fill="x", padx=22, pady=(0, 12))
+    sel_row.columnconfigure(1, weight=1)
+    sel_row.columnconfigure(3, weight=1)
+
+    tk.Label(sel_row, text="A", bg=BG, fg=MUTED,
+             font=F_CAPS).grid(row=0, column=0, sticky="w")
+    var_a = StringVar(value=default_a)
+    combo_a = ttk.Combobox(sel_row, values=labels, textvariable=var_a,
+                           state="readonly", font=F_BODY)
+    combo_a.grid(row=0, column=1, sticky="ew", padx=(6, 16), ipady=3)
+
+    tk.Label(sel_row, text="vs", bg=BG, fg=MUTED,
+             font=F_CAPS).grid(row=0, column=2, sticky="w")
+    var_b = StringVar(value=default_b)
+    combo_b = ttk.Combobox(sel_row, values=labels, textvariable=var_b,
+                           state="readonly", font=F_BODY)
+    combo_b.grid(row=0, column=3, sticky="ew", padx=(16, 0), ipady=3)
+
+    result_shell = tk.Frame(win, bg=BORDER)
+    result_shell.pack(fill="both", expand=True, padx=22, pady=(0, 20))
+    result_inner = tk.Frame(result_shell, bg=SURFACE)
+    result_inner.pack(fill="both", expand=True, padx=1, pady=1)
+
+    body = [None]
+
+    def render():
+        if body[0]:
+            body[0].destroy()
+        b = tk.Frame(result_inner, bg=SURFACE, padx=18, pady=16)
+        b.pack(fill="both", expand=True)
+        body[0] = b
+        if var_a.get() not in id_of or var_b.get() not in id_of:
+            return
+        a_id = id_of[var_a.get()]
+        b_id = id_of[var_b.get()]
+        if kind == "teams":
+            render_team_comparison(b, a_id, b_id)
+        elif kind == "clubs":
+            render_club_comparison(b, a_id, b_id)
+        elif kind == "players":
+            render_player_comparison(b, a_id, b_id)
+        else:
+            render_match_comparison(b, a_id, b_id)
+
+    combo_a.bind("<<ComboboxSelected>>", lambda e: render())
+    combo_b.bind("<<ComboboxSelected>>", lambda e: render())
+    render()
 
 
 # ------------------------------------------------------------------ top action row
 action_row = tk.Frame(root, bg=BG)
-action_row.pack(fill="x", padx=22, pady=(14, 10))
+action_row.pack(fill="x", padx=22, pady=(14, 8))
 for i in range(4):
     action_row.columnconfigure(i, weight=1, uniform="act")
 
 FUNC_BLOCKS = [
-    ("BROWSE", [( "Teams", browse_teams),
-                ( "Clubs", browse_clubs),
-                ( "Players", browse_players),
-                ( "Matches", browse_matches),
-                ( "Tournaments", browse_tournaments)]),
-    ("ADD",    [( "Team", add_team),
-                ( "Club", add_club),
-                ( "Player", add_player),
-                ( "Match", add_match),
-                ( "Tournament", add_tournament)]),
-    ("EDIT",   [( "Teams", edit_team),
-                ( "Clubs", edit_club),
-                ( "Players", edit_player),
-                ( "Matches", edit_match),
-                ( "Tournaments", edit_tournament)]),
-    ("REMOVE", [( "Team", remove_team),
-                ( "Club", remove_club),
-                ( "Player", remove_player),
-                ( "Match", remove_match),
-                ( "Tournament", remove_tournament)]),
+    ("BROWSE", [("Teams",       browse_teams),
+                ("Clubs",       browse_clubs),
+                ("Players",     browse_players),
+                ("Matches",     browse_matches),
+                ("Tournaments", browse_tournaments)]),
+    ("ADD",    [("Team",        add_team),
+                ("Club",        add_club),
+                ("Player",      add_player),
+                ("Match",       add_match),
+                ("Tournament",  add_tournament)]),
+    ("EDIT",   [("Teams",       edit_team),
+                ("Clubs",       edit_club),
+                ("Players",     edit_player),
+                ("Matches",     edit_match),
+                ("Tournaments", edit_tournament)]),
+    ("REMOVE", [("Team",        remove_team),
+                ("Club",        remove_club),
+                ("Player",      remove_player),
+                ("Match",       remove_match),
+                ("Tournament",  remove_tournament)]),
 ]
-
 for i, (title, items) in enumerate(FUNC_BLOCKS):
     padx = (0, 6) if i == 0 else (6, 0) if i == 3 else (6, 6)
-    inner = card_frame(action_row, title, row=0, column=i,
-                       padx=padx, pady=0)
+    inner = card_frame(action_row, title, row=0, column=i, padx=padx, pady=0)
     for label, cmd in items:
         make_small_button(inner, label, cmd,
                           danger=(title == "REMOVE")).pack(fill="x", pady=2)
+
+
+# ------------------------------------------------------------------ compare strip
+compare_row = tk.Frame(root, bg=BG)
+compare_row.pack(fill="x", padx=22, pady=(4, 10))
+tk.Label(compare_row, text="COMPARE", bg=BG, fg=MUTED,
+         font=F_CAPS).pack(side="left", padx=(0, 12))
+for label, cmd in (("Teams",   lambda: open_compare("teams")),
+                   ("Clubs",   lambda: open_compare("clubs")),
+                   ("Players", lambda: open_compare("players")),
+                   ("Matches", lambda: open_compare("matches"))):
+    make_small_button(compare_row, label, cmd).pack(side="left", padx=(0, 6))
 
 
 # ------------------------------------------------------------------ dashboard
@@ -1040,7 +1418,6 @@ recent_inner = card_frame(dashboard, "RECENT MATCHES",
 progress_inner = card_frame(dashboard, "TOURNAMENT PROGRESS",
                             row=1, column=0, columnspan=2, padx=0, pady=(6, 0))
 
-# Tournaments list
 t_shell = tk.Frame(tourn_inner, bg=BORDER)
 t_shell.pack(fill="both", expand=True)
 tournaments_tree = ttk.Treeview(t_shell,
@@ -1050,23 +1427,20 @@ t_scroll = ttk.Scrollbar(t_shell, orient="vertical",
                          command=tournaments_tree.yview)
 tournaments_tree.configure(yscrollcommand=t_scroll.set)
 t_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
-tournaments_tree.pack(side="left", fill="both", expand=True,
-                      padx=1, pady=1)
+tournaments_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
 for col, w in zip(["Name", "Date", "Matches"], [260, 110, 70]):
     tournaments_tree.heading(col, text=col, anchor="w")
-    tournaments_tree.column(col, width=w, minwidth=50,
-                            anchor="w", stretch=(col == "Name"))
+    tournaments_tree.column(col, width=w, minwidth=50, anchor="w",
+                            stretch=(col == "Name"))
 tournaments_tree.tag_configure("row_even", background=SURFACE)
 tournaments_tree.tag_configure("row_odd",  background=STRIPE)
 
-# Recent matches
 r_shell = tk.Frame(recent_inner, bg=BORDER)
 r_shell.pack(fill="both", expand=True)
 recent_tree = ttk.Treeview(r_shell,
                            columns=["Date", "Home", "Away", "Score", "Tourn."],
                            show="headings", selectmode="none")
-r_scroll = ttk.Scrollbar(r_shell, orient="vertical",
-                         command=recent_tree.yview)
+r_scroll = ttk.Scrollbar(r_shell, orient="vertical", command=recent_tree.yview)
 recent_tree.configure(yscrollcommand=r_scroll.set)
 r_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
 recent_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
@@ -1078,12 +1452,10 @@ for col, w in zip(["Date", "Home", "Away", "Score", "Tourn."],
 recent_tree.tag_configure("row_even", background=SURFACE)
 recent_tree.tag_configure("row_odd",  background=STRIPE)
 
-# Tournament progress
 progress_subtitle = tk.Label(progress_inner,
                              text="Select a tournament above to see standings.",
                              bg=SURFACE, fg=MUTED, font=F_SMALL)
 progress_subtitle.pack(anchor="w", pady=(0, 6))
-
 p_shell = tk.Frame(progress_inner, bg=BORDER)
 p_shell.pack(fill="both", expand=True)
 progress_tree = ttk.Treeview(p_shell,
@@ -1096,8 +1468,10 @@ p_scroll.pack(side="right", fill="y", padx=(0, 1), pady=1)
 progress_tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
 for col, w in zip(["Team", "P", "W", "D", "L", "Pts"],
                   [280, 60, 60, 60, 60, 70]):
-    progress_tree.heading(col, text=col, anchor="w" if col == "Team" else "center")
-    progress_tree.column(col, width=w, minwidth=40, anchor="w" if col == "Team" else "center",
+    progress_tree.heading(col, text=col,
+                          anchor="w" if col == "Team" else "center")
+    progress_tree.column(col, width=w, minwidth=40,
+                         anchor="w" if col == "Team" else "center",
                          stretch=(col == "Team"))
 progress_tree.tag_configure("row_even", background=SURFACE)
 progress_tree.tag_configure("row_odd",  background=STRIPE)
@@ -1122,7 +1496,6 @@ def load_tournaments():
         tournaments_tree.insert("", "end", iid=str(tid),
                                 values=(name, date, count),
                                 tags=("row_even" if i % 2 == 0 else "row_odd",))
-    # restore selection
     if prev_id and tournaments_tree.exists(prev_id):
         tournaments_tree.selection_set(prev_id)
     elif rows:
@@ -1136,8 +1509,7 @@ def load_recent():
     recent_tree.delete(*recent_tree.get_children())
     with sqlite3.connect(DB) as conn:
         rows = conn.execute("""
-            SELECT m.MatchID,
-                   COALESCE(m.MatchDate, '-'),
+            SELECT COALESCE(m.MatchDate, '-'),
                    ht.TeamName, at.TeamName,
                    COALESCE(m.MatchHScore, '-') || ' – ' ||
                    COALESCE(m.MatchAScore, '-'),
@@ -1146,18 +1518,18 @@ def load_recent():
             JOIN Teams ht ON m.MatchHome = ht.TeamID
             JOIN Teams at ON m.MatchAway = at.TeamID
             LEFT JOIN Tournaments t ON m.TournamentID = t.TournamentID
-            ORDER BY m.MatchID DESC
-            LIMIT 10
+            ORDER BY m.MatchID DESC LIMIT 10
         """).fetchall()
     for i, row in enumerate(rows):
-        recent_tree.insert("", "end", values=row[1:],
+        recent_tree.insert("", "end", values=row,
                            tags=("row_even" if i % 2 == 0 else "row_odd",))
 
 
 def load_progress(tournament_id=None):
     progress_tree.delete(*progress_tree.get_children())
     if tournament_id is None:
-        progress_subtitle.configure(text="Select a tournament above to see standings.")
+        progress_subtitle.configure(
+            text="Select a tournament above to see standings.")
         return
     with sqlite3.connect(DB) as conn:
         name_row = conn.execute(
@@ -1171,12 +1543,12 @@ def load_progress(tournament_id=None):
             SELECT t.TeamName,
                    COUNT(m.MatchID),
                    SUM(CASE WHEN (m.MatchHome=t.TeamID AND m.MatchHScore>m.MatchAScore)
-                             OR (m.MatchAway=t.TeamID AND m.MatchAScore>m.MatchHScore)
-                        THEN 1 ELSE 0 END),
+                              OR (m.MatchAway=t.TeamID AND m.MatchAScore>m.MatchHScore)
+                            THEN 1 ELSE 0 END),
                    SUM(CASE WHEN m.MatchHScore=m.MatchAScore THEN 1 ELSE 0 END),
                    SUM(CASE WHEN (m.MatchHome=t.TeamID AND m.MatchHScore<m.MatchAScore)
-                             OR (m.MatchAway=t.TeamID AND m.MatchAScore<m.MatchHScore)
-                        THEN 1 ELSE 0 END)
+                              OR (m.MatchAway=t.TeamID AND m.MatchAScore<m.MatchHScore)
+                            THEN 1 ELSE 0 END)
             FROM Teams t
             JOIN Matches m ON (m.MatchHome=t.TeamID OR m.MatchAway=t.TeamID)
                           AND m.TournamentID = ?
@@ -1190,8 +1562,8 @@ def load_progress(tournament_id=None):
     progress_subtitle.configure(text=f"Standings for {tname}")
     parsed = []
     for team, played, won, drawn, lost in rows:
-        pts = won * 2 + drawn
-        parsed.append((team, played, won, drawn, lost, pts))
+        pts = (won or 0) * 2 + (drawn or 0)
+        parsed.append((team, played, won or 0, drawn or 0, lost or 0, pts))
     parsed.sort(key=lambda r: (-r[5], -r[2], r[0].lower()))
     for i, r in enumerate(parsed):
         progress_tree.insert("", "end", values=r,
@@ -1218,7 +1590,6 @@ def refresh_dashboard():
 tournaments_tree.bind("<<TreeviewSelect>>", on_tournament_select)
 root.bind("<<DataChanged>>", lambda e: refresh_dashboard())
 
-# initial load
 refresh_dashboard()
 
 root.mainloop()
