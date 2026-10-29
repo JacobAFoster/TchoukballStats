@@ -65,6 +65,15 @@ def init_db():
           FOREIGN KEY (MatchAway) REFERENCES Teams(TeamID),
           FOREIGN KEY (TournamentID) REFERENCES Tournaments(TournamentID)
         );
+        CREATE TABLE IF NOT EXISTS MatchRoster (
+          MatchID  INTEGER NOT NULL,
+          TeamID   INTEGER NOT NULL,
+          PlayerID INTEGER NOT NULL,
+          PRIMARY KEY (MatchID, PlayerID),
+          FOREIGN KEY (MatchID)  REFERENCES Matches(MatchID),
+          FOREIGN KEY (TeamID)   REFERENCES Teams(TeamID),
+          FOREIGN KEY (PlayerID) REFERENCES Players(PlayerID)
+        );
         """)
         # --- migrate older DBs
         cols = [r[1] for r in conn.execute("PRAGMA table_info(Matches)")]
@@ -285,10 +294,11 @@ def show_table(title, query, columns, compare_kind=None):
 def insert_row(query, values, success_message):
     try:
         with sqlite3.connect(DB) as conn:
-            conn.execute(query, values)
+            cur = conn.execute(query, values)
+            last_id = cur.lastrowid
         set_status(success_message)
         root.event_generate("<<DataChanged>>")
-        return True
+        return last_id
     except sqlite3.IntegrityError as exc:
         set_status(f"Could not save: {exc}", error=True)
         messagebox.showerror("Database error", str(exc))
@@ -430,13 +440,16 @@ def add_match():
                                        "Scores must be whole numbers.")
                 return False
             scores.append(int(raw) if raw else None)
-        return insert_row(
+        result = insert_row(
             "INSERT INTO Matches (MatchHome, MatchAway, MatchLocation, "
             "MatchHScore, MatchAScore, TournamentID, MatchDate) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (team_of[v["home"]], team_of[v["away"]],
              v["loc"] or None, scores[0], scores[1], tid, v["date"] or None),
             "Match added.")
+        if result is not False:
+            root.after(120, lambda: open_roster_editor(result))
+        return result
     make_form("New match", "Assign to a tournament and record the final score.",
               [{"label": "Tournament", "key": "tournament",
                 "values": ["(none)"] + list(tourn_of)},
@@ -453,7 +466,8 @@ def add_match():
 
 # ------------------------------------------------------------------ editor window
 def open_editor(title, subtitle, table, id_col, list_query, list_columns,
-                list_col_widths, fetch_query, fields, validator=None):
+                list_col_widths, fetch_query, fields, validator=None,
+                pre_delete=None):
     win = Toplevel(root)
     win.title(title)
     win.configure(bg=BG)
@@ -625,6 +639,8 @@ def open_editor(title, subtitle, table, id_col, list_query, list_columns,
             return
         try:
             with sqlite3.connect(DB) as conn:
+                if pre_delete:
+                    pre_delete(conn, current_id[0])
                 conn.execute(f"DELETE FROM {table} WHERE {id_col} = ?",
                              (current_id[0],))
         except sqlite3.IntegrityError as exc:
@@ -691,6 +707,8 @@ def edit_team():
             {"label": "Club", "key": "club", "column": "ClubID",
              "widget": "combo", "options": club_opts},
         ],
+        pre_delete=lambda c, tid: c.execute(
+            "DELETE FROM MatchRoster WHERE TeamID = ?", (tid,)),
     )
 
 
@@ -732,6 +750,8 @@ def edit_player():
             {"label": "Team", "key": "team", "column": "TeamID",
              "widget": "combo", "options": team_opts},
         ],
+        pre_delete=lambda c, pid: c.execute(
+            "DELETE FROM MatchRoster WHERE PlayerID = ?", (pid,)),
     )
 
 
@@ -811,6 +831,8 @@ def edit_match():
              "numeric": True},
         ],
         validator=validate,
+        pre_delete=lambda c, mid: c.execute(
+            "DELETE FROM MatchRoster WHERE MatchID = ?", (mid,)),
     )
 
 
@@ -867,7 +889,7 @@ def browse_matches():
 
 # ------------------------------------------------------------------ remover window
 def open_remover(title, subtitle, table, id_col, list_query,
-                 list_columns, list_col_widths):
+                 list_columns, list_col_widths, pre_delete=None):
     win = Toplevel(root)
     win.title(title)
     win.configure(bg=BG)
@@ -930,6 +952,8 @@ def open_remover(title, subtitle, table, id_col, list_query,
             return
         try:
             with sqlite3.connect(DB) as conn:
+                if pre_delete:
+                    pre_delete(conn, rid)
                 conn.execute(f"DELETE FROM {table} WHERE {id_col} = ?", (rid,))
         except sqlite3.IntegrityError as exc:
             set_status(f"Could not remove: {exc}", error=True)
@@ -959,7 +983,9 @@ def remove_team():
                  "Teams used in a match must be unreferenced first.",
                  table="Teams", id_col="TeamID",
                  list_query="SELECT TeamID, TeamName FROM Teams ORDER BY TeamName",
-                 list_columns=["ID", "Team name"], list_col_widths=[70, 400])
+                 list_columns=["ID", "Team name"], list_col_widths=[70, 400],
+                 pre_delete=lambda c, tid: c.execute(
+                     "DELETE FROM MatchRoster WHERE TeamID = ?", (tid,)))
 
 
 def remove_club():
@@ -976,7 +1002,9 @@ def remove_player():
                                        COALESCE(PlayerSurname, '')
                                 FROM Players ORDER BY PlayerName, PlayerSurname""",
                  list_columns=["ID", "First name", "Surname"],
-                 list_col_widths=[70, 200, 200])
+                 list_col_widths=[70, 200, 200],
+                 pre_delete=lambda c, pid: c.execute(
+                     "DELETE FROM MatchRoster WHERE PlayerID = ?", (pid,)))
 
 
 def remove_tournament():
@@ -1002,12 +1030,185 @@ def remove_match():
                                JOIN Teams at ON m.MatchAway = at.TeamID
                                ORDER BY m.MatchID DESC""",
                  list_columns=["ID", "Date", "Home", "Away", "Score"],
-                 list_col_widths=[55, 110, 140, 140, 90])
+                 list_col_widths=[55, 110, 140, 140, 90],
+                 pre_delete=lambda c, mid: c.execute(
+                     "DELETE FROM MatchRoster WHERE MatchID = ?", (mid,)))
+
+
+# ------------------------------------------------------------------ rosters
+def open_roster_editor(match_id):
+    with sqlite3.connect(DB) as conn:
+        row = conn.execute("SELECT MatchHome, MatchAway FROM Matches "
+                           "WHERE MatchID = ?", (match_id,)).fetchone()
+        if not row:
+            messagebox.showerror("Match not found",
+                                 f"No match with ID {match_id}.")
+            return
+        home_id, away_id = row
+        home_name = conn.execute("SELECT TeamName FROM Teams WHERE TeamID=?",
+                                 (home_id,)).fetchone()[0]
+        away_name = conn.execute("SELECT TeamName FROM Teams WHERE TeamID=?",
+                                 (away_id,)).fetchone()[0]
+        home_players = conn.execute(
+            "SELECT PlayerID, PlayerName || ' ' || "
+            "COALESCE(PlayerSurname, '') FROM Players "
+            "WHERE TeamID=? ORDER BY PlayerName", (home_id,)).fetchall()
+        away_players = conn.execute(
+            "SELECT PlayerID, PlayerName || ' ' || "
+            "COALESCE(PlayerSurname, '') FROM Players "
+            "WHERE TeamID=? ORDER BY PlayerName", (away_id,)).fetchall()
+        current = {r[0] for r in conn.execute(
+            "SELECT PlayerID FROM MatchRoster WHERE MatchID = ?",
+            (match_id,)).fetchall()}
+
+    win = Toplevel(root)
+    win.title(f"Roster · Match #{match_id}")
+    win.configure(bg=BG)
+    center_window(win, 760, 540)
+    win.minsize(640, 440)
+    win.bind("<Escape>", lambda e: win.destroy())
+
+    head = tk.Frame(win, bg=BG)
+    head.pack(fill="x", padx=22, pady=(20, 12))
+    tk.Label(head, text=f"Match #{match_id} roster", bg=BG, fg=FG,
+             font=F_TITLE).pack(anchor="w")
+    tk.Label(head, text="Ctrl-click to select multiple players per side.",
+             bg=BG, fg=MUTED, font=F_SMALL).pack(anchor="w", pady=(2, 0))
+
+    body = tk.Frame(win, bg=BG)
+    body.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+    body.columnconfigure(0, weight=1, uniform="half")
+    body.columnconfigure(1, weight=1, uniform="half")
+    body.rowconfigure(0, weight=1)
+
+    def make_list(col, team_name, players):
+        colf = tk.Frame(body, bg=BG)
+        colf.grid(row=0, column=col, sticky="nsew",
+                  padx=(0, 6) if col == 0 else (6, 0))
+        tk.Label(colf, text=team_name, bg=BG, fg=MUTED,
+                 font=F_CAPS).pack(anchor="w", pady=(0, 4))
+        shell = tk.Frame(colf, bg=BORDER)
+        shell.pack(fill="both", expand=True)
+        lb = tk.Listbox(shell, selectmode="multiple", exportselection=False,
+                        bg=SURFACE, fg=FG, selectbackground=ACCENT,
+                        selectforeground="#ffffff", activestyle="none",
+                        relief="flat", bd=0, highlightthickness=0,
+                        font=F_BODY)
+        sb = ttk.Scrollbar(shell, orient="vertical", command=lb.yview)
+        lb.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        lb.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+        id_list = []
+        if not players:
+            lb.insert("end", "(no players on this team)")
+            lb.itemconfig(0, foreground=MUTED)
+        for i, (pid, name) in enumerate(players):
+            lb.insert("end", name)
+            id_list.append(pid)
+            if pid in current:
+                lb.selection_set(i)
+        return lb, id_list
+
+    home_lb, home_ids = make_list(0, home_name, home_players)
+    away_lb, away_ids = make_list(1, away_name, away_players)
+
+    actions = tk.Frame(win, bg=BG)
+    actions.pack(fill="x", padx=22, pady=(0, 18))
+
+    def save():
+        picks = [(home_id, home_ids[i]) for i in home_lb.curselection()
+                 if i < len(home_ids)]
+        picks += [(away_id, away_ids[i]) for i in away_lb.curselection()
+                  if i < len(away_ids)]
+        try:
+            with sqlite3.connect(DB) as conn:
+                conn.execute("DELETE FROM MatchRoster WHERE MatchID = ?",
+                             (match_id,))
+                conn.executemany(
+                    "INSERT INTO MatchRoster (MatchID, TeamID, PlayerID) "
+                    "VALUES (?, ?, ?)",
+                    [(match_id, tid, pid) for tid, pid in picks])
+            set_status(f"Roster saved ({len(picks)} players).")
+            root.event_generate("<<DataChanged>>")
+            win.destroy()
+        except sqlite3.IntegrityError as exc:
+            set_status(f"Could not save roster: {exc}", error=True)
+
+    make_button(actions, "Save roster", save, accent=True, anchor="center"
+                ).pack(side="right")
+    make_button(actions, "Cancel", win.destroy, anchor="center"
+                ).pack(side="right", padx=(0, 8))
+
+
+def open_roster_picker():
+    with sqlite3.connect(DB) as conn:
+        rows = conn.execute("""
+            SELECT m.MatchID,
+                   COALESCE(m.MatchDate, '-'),
+                   ht.TeamName || ' vs ' || at.TeamName,
+                   (SELECT COUNT(*) FROM MatchRoster r
+                    WHERE r.MatchID = m.MatchID)
+            FROM Matches m
+            JOIN Teams ht ON m.MatchHome = ht.TeamID
+            JOIN Teams at ON m.MatchAway = at.TeamID
+            ORDER BY m.MatchID DESC
+        """).fetchall()
+
+    win = Toplevel(root)
+    win.title("Match rosters")
+    win.configure(bg=BG)
+    center_window(win, 780, 500)
+    win.minsize(620, 380)
+    win.bind("<Escape>", lambda e: win.destroy())
+
+    head = tk.Frame(win, bg=BG)
+    head.pack(fill="x", padx=22, pady=(20, 12))
+    tk.Label(head, text="Match rosters", bg=BG, fg=FG,
+             font=F_TITLE).pack(anchor="w")
+    tk.Label(head, text="Select a match to edit its roster.",
+             bg=BG, fg=MUTED, font=F_SMALL).pack(anchor="w", pady=(2, 0))
+
+    shell = tk.Frame(win, bg=BORDER)
+    shell.pack(fill="both", expand=True, padx=22, pady=(0, 10))
+    tree = ttk.Treeview(shell, columns=["ID", "Date", "Match", "Players"],
+                        show="headings", selectmode="browse")
+    sb = ttk.Scrollbar(shell, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=sb.set)
+    sb.pack(side="right", fill="y", padx=(0, 1), pady=1)
+    tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
+    for col, w in zip(["ID", "Date", "Match", "Players"],
+                      [55, 110, 380, 80]):
+        tree.heading(col, text=col, anchor="w")
+        tree.column(col, width=w, minwidth=40, anchor="w",
+                    stretch=(col == "Match"))
+    tree.tag_configure("row_even", background=SURFACE)
+    tree.tag_configure("row_odd",  background=STRIPE)
+    for i, r in enumerate(rows):
+        tree.insert("", "end", values=r,
+                    tags=("row_even" if i % 2 == 0 else "row_odd",))
+    if rows:
+        first = tree.get_children()[0]
+        tree.selection_set(first)
+        tree.focus(first)
+
+    def edit_sel():
+        sel = tree.selection()
+        if not sel:
+            messagebox.showinfo("Nothing selected",
+                                "Select a match first.", parent=win)
+            return
+        open_roster_editor(int(tree.item(sel[0], "values")[0]))
+
+    actions = tk.Frame(win, bg=BG)
+    actions.pack(fill="x", padx=22, pady=(0, 20))
+    make_small_button(actions, "Edit roster", edit_sel).pack(side="right")
+    make_small_button(actions, "Close", win.destroy).pack(
+        side="right", padx=(0, 8))
+    tree.bind("<Double-1>", lambda e: edit_sel())
 
 
 # ------------------------------------------------------------------ comparison
 def render_comparison_table(parent, header_a, header_b, rows):
-    """rows = list of (label, value_a, value_b)"""
     hdr = tk.Frame(parent, bg=SURFACE)
     hdr.pack(fill="x", pady=(0, 6))
     tk.Label(hdr, text="", bg=SURFACE, width=22).pack(side="left")
@@ -1270,7 +1471,7 @@ def open_compare(kind, preselected=None):
                 "' ' || COALESCE(PlayerSurname, '') "
                 "FROM Players ORDER BY PlayerName, PlayerSurname"
             ).fetchall()
-        else:  # matches
+        else:
             options = conn.execute("""
                 SELECT m.MatchID,
                        COALESCE(m.MatchDate, '?') || ' · ' ||
@@ -1376,7 +1577,8 @@ FUNC_BLOCKS = [
                 ("Clubs",       edit_club),
                 ("Players",     edit_player),
                 ("Matches",     edit_match),
-                ("Tournaments", edit_tournament)]),
+                ("Tournaments", edit_tournament),
+                ("Match rosters", open_roster_picker)]),
     ("REMOVE", [("Team",        remove_team),
                 ("Club",        remove_club),
                 ("Player",      remove_player),
