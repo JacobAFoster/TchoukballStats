@@ -1,3 +1,15 @@
-30/10/26 - download all files EXCEPT tchoukball stats.py
+PYTHON download
+config.py
+database.py
+added files
+dialogs.py
+main.py
+models.py
+tchoukball stats.py
+ui_components.py
 
-Main.py to run
+
+WEBSITE download
+app.js
+index.html
+style.css
