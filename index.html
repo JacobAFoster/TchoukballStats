@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tchoukball Stats</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="p-4 md:p-8 flex flex-col min-h-screen">
+
+    <div class="max-w-7xl mx-auto w-full flex-grow flex flex-col gap-6">
+
+        <!-- Top Header with Full Settings Button -->
+        <header class="glass-card rounded-2xl p-6 flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-white">Tchoukball Stats</h1>
+                <p class="text-slate-400 text-sm mt-1">Manage teams, matches, tournament rosters, and analytics.</p>
+            </div>
+            <button onclick="ui.openSettings()" class="btn-action !w-auto px-4 py-2 border border-slate-700 hover:border-indigo-500 font-medium">
+                Settings
+            </button>
+        </header>
+
+        <!-- Main Content Grid -->
+        <div class="flex-grow flex flex-col gap-6">
+            <section id="action-cards-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                
+                <!-- BROWSE CARD -->
+                <div class="glass-card rounded-2xl p-5 flex flex-col" data-card="browse">
+                    <div class="mb-4 border-b border-slate-700/50 pb-3">
+                        <h2 class="text-xs font-bold tracking-wider text-indigo-400 uppercase">BROWSE</h2>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <button onclick="ui.openBrowser('teams')" class="btn-action">Teams</button>
+                        <button onclick="ui.openBrowser('clubs')" class="btn-action">Clubs</button>
+                        <button onclick="ui.openBrowser('players')" class="btn-action-highlight">
+                            <span>Players</span>
+                            <span class="text-[10px] bg-indigo-500/30 px-2 py-0.5 rounded-full text-indigo-300">Right-Clickable</span>
+                        </button>
+                        <button onclick="ui.openBrowser('rosters')" class="btn-action">Rosters</button>
+                        <button onclick="ui.openBrowser('matches')" class="btn-action">Matches</button>
+                        <button onclick="ui.openBrowser('tournaments')" class="btn-action">Tournaments</button>
+                    </div>
+                </div>
+
+                <!-- ADD CARD -->
+                <div class="glass-card rounded-2xl p-5 flex flex-col" data-card="add">
+                    <div class="mb-4 border-b border-slate-700/50 pb-3">
+                        <h2 class="text-xs font-bold tracking-wider text-emerald-400 uppercase">ADD NEW</h2>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <button onclick="ui.openForm('add-team')" class="btn-action">Team</button>
+                        <button onclick="ui.openForm('add-club')" class="btn-action">Club</button>
+                        <button onclick="ui.openForm('add-player')" class="btn-action">Player</button>
+                        <button onclick="ui.openForm('add-match')" class="btn-action">Match Fixture</button>
+                        <button onclick="ui.openForm('add-tournament')" class="btn-action">Tournament</button>
+                    </div>
+                </div>
+
+                <!-- EDIT CARD -->
+                <div class="glass-card rounded-2xl p-5 flex flex-col" data-card="edit">
+                    <div class="mb-4 border-b border-slate-700/50 pb-3">
+                        <h2 class="text-xs font-bold tracking-wider text-amber-400 uppercase">EDIT</h2>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <button onclick="ui.openSelector('edit-team')" class="btn-action">Teams</button>
+                        <button onclick="ui.openSelector('edit-club')" class="btn-action">Clubs</button>
+                        <button onclick="ui.openSelector('edit-player')" class="btn-action">Players</button>
+                        <button onclick="ui.openSelector('edit-match')" class="btn-action">Matches</button>
+                        <button onclick="ui.openSelector('edit-tournament')" class="btn-action">Tournaments</button>
+                    </div>
+                </div>
+
+                <!-- REMOVE CARD -->
+                <div class="glass-card rounded-2xl p-5 flex flex-col" data-card="remove">
+                    <div class="mb-4 border-b border-rose-900/40 pb-3">
+                        <h2 class="text-xs font-bold tracking-wider text-rose-400 uppercase">REMOVE</h2>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <button onclick="ui.openSelector('remove-team')" class="btn-danger">Team</button>
+                        <button onclick="ui.openSelector('remove-club')" class="btn-danger">Club</button>
+                        <button onclick="ui.openSelector('remove-player')" class="btn-danger">Player</button>
+                        <button onclick="ui.openSelector('remove-match')" class="btn-danger">Match</button>
+                        <button onclick="ui.openSelector('remove-tournament')" class="btn-danger">Tournament</button>
+                    </div>
+                </div>
+
+            </section>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-auto pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+            <span>Tchoukball Stats Platform</span>
+            <span id="status-bar" class="text-indigo-400 font-medium">Ready.</span>
+        </footer>
+
+    </div>
+
+    <!-- GLOBAL MODAL CONTAINER -->
+    <div id="modal-backdrop" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden z-50 flex items-center justify-center p-4">
+        <div id="modal-card" class="glass-card rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-700/80">
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+                <h3 id="modal-title" class="text-lg font-bold text-white">Modal Title</h3>
+                <button onclick="ui.closeModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg transition">
+                    &times;
+                </button>
+            </div>
+            <div id="modal-body" class="p-6 overflow-y-auto flex-grow text-sm">
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT-CLICK CONTEXT MENU -->
+    <div id="context-menu" class="fixed hidden z-50 glass-card rounded-xl border border-slate-700/80 shadow-2xl py-1.5 w-52 context-menu-animate">
+        <div class="px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800 mb-1">
+            Player Options
+        </div>
+        <button id="ctx-btn-profile" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-indigo-600/30 hover:text-indigo-200 transition font-medium">
+            View Full Profile
+        </button>
+        <button id="ctx-btn-edit" class="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-amber-600/30 hover:text-amber-200 transition font-medium">
+            Edit Player Details
+        </button>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
