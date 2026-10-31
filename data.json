@@ -1,0 +1,185 @@
+{
+  "version": 4,
+  "settings": {
+    "pointsWin": 3,
+    "pointsDraw": 2,
+    "pointsLoss": 1,
+    "cardOrder": [
+      "browse",
+      "add",
+      "edit",
+      "remove"
+    ],
+    "themeColor": "indigo",
+    "focusTournamentId": 501
+  },
+  "db": {
+    "clubs": [
+      {
+        "id": 1,
+        "name": "Geneva Tchoukball Club"
+      },
+      {
+        "id": 2,
+        "name": "Taipei Titans Club"
+      },
+      {
+        "id": 3,
+        "name": "London Rampage Club"
+      }
+    ],
+    "teams": [
+      {
+        "id": 101,
+        "name": "Geneva Dragons",
+        "clubId": 1
+      },
+      {
+        "id": 102,
+        "name": "Taipei Lightning",
+        "clubId": 2
+      },
+      {
+        "id": 103,
+        "name": "London Knights",
+        "clubId": 3
+      }
+    ],
+    "players": [
+      {
+        "id": 1,
+        "fname": "Alex",
+        "lname": "Rivera",
+        "teamId": 101,
+        "birthdate": "2001-05-14",
+        "position": "Shooter / Right Wing",
+        "appearances": 18,
+        "wins": 14,
+        "losses": 3,
+        "draws": 1,
+        "totalPoints": 162,
+        "avgPoints": 9,
+        "highestMatch": {
+          "points": 16,
+          "opponent": "Taipei Lightning (2026-02-10)"
+        },
+        "lowestMatch": {
+          "points": 4,
+          "opponent": "Lausanne Wildcats (2025-11-04)"
+        },
+        "matches": [
+          {
+            "matchup": "Geneva Dragons vs Taipei Lightning",
+            "date": "2026-02-10",
+            "points": 16
+          },
+          {
+            "matchup": "Geneva Dragons vs Zurich Falcons",
+            "date": "2026-01-22",
+            "points": 11
+          },
+          {
+            "matchup": "Geneva Dragons vs Lausanne Wildcats",
+            "date": "2025-11-04",
+            "points": 4
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "fname": "Chen",
+        "lname": "Wei-Ting",
+        "teamId": 102,
+        "birthdate": "1999-11-20",
+        "position": "Centre Defender",
+        "appearances": 22,
+        "wins": 19,
+        "losses": 2,
+        "draws": 1,
+        "totalPoints": 110,
+        "avgPoints": 5,
+        "highestMatch": {
+          "points": 9,
+          "opponent": "Geneva Dragons (2026-02-10)"
+        },
+        "lowestMatch": {
+          "points": 2,
+          "opponent": "Tokyo Strikers (2025-09-18)"
+        },
+        "matches": [
+          {
+            "matchup": "Taipei Lightning vs Geneva Dragons",
+            "date": "2026-02-10",
+            "points": 9
+          },
+          {
+            "matchup": "Taipei Lightning vs Tokyo Strikers",
+            "date": "2025-09-18",
+            "points": 2
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "fname": "Sarah",
+        "lname": "Jenkins",
+        "teamId": 103,
+        "birthdate": "2003-02-18",
+        "position": "Left Wing Shooter",
+        "appearances": 12,
+        "wins": 8,
+        "losses": 4,
+        "draws": 0,
+        "totalPoints": 96,
+        "avgPoints": 8,
+        "highestMatch": {
+          "points": 14,
+          "opponent": "Geneva Dragons (2026-01-05)"
+        },
+        "lowestMatch": {
+          "points": 3,
+          "opponent": "Taipei Lightning (2025-12-12)"
+        },
+        "matches": [
+          {
+            "matchup": "London Knights vs Geneva Dragons",
+            "date": "2026-01-05",
+            "points": 14
+          }
+        ]
+      }
+    ],
+    "tournaments": [
+      {
+        "id": 501,
+        "name": "World Championship 2026",
+        "date": "2026-08-12",
+        "location": "Geneva, Switzerland"
+      },
+      {
+        "id": 502,
+        "name": "European Nations Cup",
+        "date": "2025-10-15",
+        "location": "London, UK"
+      }
+    ],
+    "matches": [
+      {
+        "id": 1001,
+        "homeId": 101,
+        "awayId": 102,
+        "date": "2026-02-10",
+        "tournId": 501,
+        "location": "Geneva Arena"
+      },
+      {
+        "id": 1002,
+        "homeId": 103,
+        "awayId": 101,
+        "date": "2026-01-05",
+        "tournId": 502,
+        "location": "London Sports Hall"
+      }
+    ]
+  }
+}
