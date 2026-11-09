@@ -20,6 +20,33 @@ const PLURAL = {
 };
 
 // ---------------------------------------------------------------------
+// Icons & header stats
+// ---------------------------------------------------------------------
+const ICON = {
+    browse: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
+    plus:   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M12 5v14M5 12h14"/></svg>',
+    edit:   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
+    trash:  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>',
+    settings:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    user:   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+};
+
+function setModalTitle(text, iconKey, tint = 'indigo') {
+    const el = document.getElementById('modal-title');
+    if (!el) return;
+    const colorMap = { indigo: '#818cf8', emerald: '#34d399', amber: '#fbbf24', rose: '#fb7185' };
+    const icon = iconKey ? `<span style="color:${colorMap[tint] || colorMap.indigo};display:inline-flex;align-items:center">${ICON[iconKey]}</span>` : '';
+    el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.5rem">${icon}<span>${text}</span></span>`;
+}
+
+function updateHeaderStats() {
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set('stat-teams', db.teams.length);
+    set('stat-players', db.players.length);
+    set('stat-matches', db.matches.length);
+}
+
+// ---------------------------------------------------------------------
 // API layer
 // ---------------------------------------------------------------------
 function applyState(state) {
@@ -27,6 +54,7 @@ function applyState(state) {
     serverVersion = state.version || 0;
     Object.assign(appSettings, state.settings);
     db = state.db;
+    updateHeaderStats();
 }
 
 async function request(method, url, body) {
@@ -59,9 +87,8 @@ const api = {
 const ui = {
     openSettings() {
         currentView = null;
-        const titleEl = document.getElementById('modal-title');
         const bodyEl = document.getElementById('modal-body');
-        titleEl.innerText = 'Application Settings';
+        setModalTitle('Application Settings', 'settings', 'indigo');
 
         bodyEl.innerHTML = `
             <form onsubmit="ui.saveSettings(event)" class="flex flex-col gap-5">
@@ -166,6 +193,7 @@ const ui = {
         try {
             await api.post('/api/reset');
             ui.applyThemeAndLayout();
+            updateHeaderStats();
             ui.closeModal();
             setStatus('Shared database reset to defaults.');
         } catch (err) { setStatus(`Error: ${err.message}`); }
@@ -173,11 +201,10 @@ const ui = {
 
     openBrowser(type) {
         currentView = { kind: 'browse', type };
-        const titleEl = document.getElementById('modal-title');
         const bodyEl = document.getElementById('modal-body');
 
         if (type === 'players') {
-            titleEl.innerText = 'Browse Players';
+            setModalTitle('Browse Players', 'browse', 'indigo');
             const rows = db.players.map((p) => {
                 const team = db.teams.find((t) => t.id === p.teamId)?.name || 'No Team';
                 return `<tr data-player-id="${p.id}" class="player-row border-b border-slate-800/80 hover:bg-indigo-600/10 cursor-pointer transition">
@@ -204,18 +231,18 @@ const ui = {
                 });
             }, 50);
         } else if (type === 'teams') {
-            titleEl.innerText = 'Browse Teams';
+            setModalTitle('Browse Teams', 'browse', 'indigo');
             const rows = db.teams.map((t) => {
                 const club = db.clubs.find((c) => c.id === t.clubId)?.name || 'No Club';
                 return `<tr class="border-b border-slate-800/80 hover:bg-slate-800/40"><td class="py-3 px-4 font-mono text-xs text-indigo-300">#${t.id}</td><td class="py-3 px-4 font-medium text-slate-100">${t.name}</td><td class="py-3 px-4 text-slate-300">${club}</td></tr>`;
             }).join('');
             bodyEl.innerHTML = `<div class="overflow-x-auto rounded-xl border border-slate-800"><table class="w-full text-left border-collapse"><thead class="bg-slate-900/80 text-xs font-semibold text-slate-400 uppercase"><tr><th class="py-3 px-4">ID</th><th class="py-3 px-4">Team Name</th><th class="py-3 px-4">Club</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="p-4 text-center text-slate-500">No teams found.</td></tr>'}</tbody></table></div>`;
         } else if (type === 'clubs') {
-            titleEl.innerText = 'Browse Clubs';
+            setModalTitle('Browse Clubs', 'browse', 'indigo');
             const rows = db.clubs.map((c) => `<tr class="border-b border-slate-800/80 hover:bg-slate-800/40"><td class="py-3 px-4 font-mono text-xs text-indigo-300">#${c.id}</td><td class="py-3 px-4 font-medium text-slate-100">${c.name}</td></tr>`).join('');
             bodyEl.innerHTML = `<div class="overflow-x-auto rounded-xl border border-slate-800"><table class="w-full text-left border-collapse"><thead class="bg-slate-900/80 text-xs font-semibold text-slate-400 uppercase"><tr><th class="py-3 px-4">ID</th><th class="py-3 px-4">Club Name</th></tr></thead><tbody>${rows || '<tr><td colspan="2" class="p-4 text-center text-slate-500">No clubs found.</td></tr>'}</tbody></table></div>`;
         } else if (type === 'matches') {
-            titleEl.innerText = 'Browse Matches';
+            setModalTitle('Browse Matches', 'browse', 'indigo');
             const rows = db.matches.map((m) => {
                 const home = db.teams.find((t) => t.id === m.homeId)?.name || 'Home';
                 const away = db.teams.find((t) => t.id === m.awayId)?.name || 'Away';
@@ -224,11 +251,11 @@ const ui = {
             }).join('');
             bodyEl.innerHTML = `<div class="overflow-x-auto rounded-xl border border-slate-800"><table class="w-full text-left border-collapse"><thead class="bg-slate-900/80 text-xs font-semibold text-slate-400 uppercase"><tr><th class="py-3 px-4">ID</th><th class="py-3 px-4">Fixture</th><th class="py-3 px-4">Tournament</th><th class="py-3 px-4">Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="p-4 text-center text-slate-500">No matches found.</td></tr>'}</tbody></table></div>`;
         } else if (type === 'tournaments') {
-            titleEl.innerText = 'Browse Tournaments';
+            setModalTitle('Browse Tournaments', 'browse', 'indigo');
             const rows = db.tournaments.map((tr) => `<tr class="border-b border-slate-800/80 hover:bg-slate-800/40"><td class="py-3 px-4 font-mono text-xs text-indigo-300">#${tr.id}</td><td class="py-3 px-4 font-medium text-slate-100">${tr.name}</td><td class="py-3 px-4 text-slate-300">${tr.location}</td><td class="py-3 px-4 text-xs text-slate-400">${tr.date}</td></tr>`).join('');
             bodyEl.innerHTML = `<div class="overflow-x-auto rounded-xl border border-slate-800"><table class="w-full text-left border-collapse"><thead class="bg-slate-900/80 text-xs font-semibold text-slate-400 uppercase"><tr><th class="py-3 px-4">ID</th><th class="py-3 px-4">Tournament Name</th><th class="py-3 px-4">Location</th><th class="py-3 px-4">Date</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="p-4 text-center text-slate-500">No tournaments found.</td></tr>'}</tbody></table></div>`;
         } else if (type === 'rosters') {
-            titleEl.innerText = 'Match Rosters';
+            setModalTitle('Match Rosters', 'browse', 'indigo');
             const rows = db.players.map((p) => {
                 const team = db.teams.find((t) => t.id === p.teamId)?.name || 'Unassigned';
                 return `<tr class="border-b border-slate-800/80 hover:bg-slate-800/40"><td class="py-3 px-4 font-medium text-slate-100">${p.fname} ${p.lname}</td><td class="py-3 px-4 text-indigo-300">${team}</td><td class="py-3 px-4 text-xs text-slate-400">${p.appearances || 0} match appearances</td></tr>`;
@@ -245,7 +272,7 @@ const ui = {
         const team = db.teams.find((t) => t.id === p.teamId)?.name || 'No Team';
         const club = db.clubs.find((c) => c.id === db.teams.find((t) => t.id === p.teamId)?.clubId)?.name || 'No Club';
 
-        document.getElementById('modal-title').innerText = `Player Profile: ${p.fname} ${p.lname}`;
+        setModalTitle(`Player Profile — ${p.fname} ${p.lname}`, 'user', 'indigo');
         const matchRows = (p.matches || []).map((m) => `<tr class="border-b border-slate-800/60 hover:bg-slate-800/30"><td class="py-2.5 px-3 text-slate-200 font-medium">${m.matchup}</td><td class="py-2.5 px-3 text-slate-400 text-xs">${m.date}</td><td class="py-2.5 px-3 text-indigo-300 font-bold font-mono text-right">${m.points} pts</td></tr>`).join('');
 
         document.getElementById('modal-body').innerHTML = `
@@ -273,28 +300,27 @@ const ui = {
 
     openForm(action) {
         currentView = null;
-        const titleEl = document.getElementById('modal-title');
         const bodyEl = document.getElementById('modal-body');
         const inputClass = 'w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-indigo-500';
 
         if (action === 'add-team') {
-            titleEl.innerText = 'ADD TEAM';
+            setModalTitle('Add Team', 'plus', 'emerald');
             const clubOpts = db.clubs.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
             bodyEl.innerHTML = `<form onsubmit="ui.submitAddTeam(event)" class="flex flex-col gap-4"><div><label class="block text-xs font-medium text-slate-300 mb-1">Team Name</label><input id="f-team-name" type="text" required class="${inputClass}" placeholder="e.g. Geneva Dragons"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Club</label><select id="f-team-club" class="${inputClass}"><option value="">(None)</option>${clubOpts}</select></div><button type="submit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition">Add Team</button></form>`;
         } else if (action === 'add-club') {
-            titleEl.innerText = 'ADD CLUB';
+            setModalTitle('Add Club', 'plus', 'emerald');
             bodyEl.innerHTML = `<form onsubmit="ui.submitAddClub(event)" class="flex flex-col gap-4"><div><label class="block text-xs font-medium text-slate-300 mb-1">Club Name</label><input id="f-club-name" type="text" required class="${inputClass}" placeholder="e.g. Lausanne Tchoukball Club"></div><button type="submit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition">Add Club</button></form>`;
         } else if (action === 'add-player') {
-            titleEl.innerText = 'ADD PLAYER';
+            setModalTitle('Add Player', 'plus', 'emerald');
             const teamOpts = db.teams.map((t) => `<option value="${t.id}">${t.name}</option>`).join('');
             bodyEl.innerHTML = `<form onsubmit="ui.submitAddPlayer(event)" class="flex flex-col gap-4"><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">First Name</label><input id="f-p-fname" type="text" required class="${inputClass}" placeholder="First Name"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Surname</label><input id="f-p-lname" type="text" class="${inputClass}" placeholder="Surname"></div></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Assigned Team</label><select id="f-p-team" class="${inputClass}"><option value="">(None)</option>${teamOpts}</select></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Birthdate</label><input id="f-p-birth" type="date" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Position</label><input id="f-p-pos" type="text" class="${inputClass}" placeholder="e.g. Wing Shooter"></div></div><button type="submit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition">Add Player</button></form>`;
         } else if (action === 'add-match') {
-            titleEl.innerText = 'ADD MATCH FIXTURE';
+            setModalTitle('Add Match Fixture', 'plus', 'emerald');
             const teamOpts = db.teams.map((t) => `<option value="${t.id}">${t.name}</option>`).join('');
             const tournOpts = db.tournaments.map((tr) => `<option value="${tr.id}">${tr.name}</option>`).join('');
             bodyEl.innerHTML = `<form onsubmit="ui.submitAddMatch(event)" class="flex flex-col gap-4"><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Home Team</label><select id="f-m-home" required class="${inputClass}">${teamOpts}</select></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Away Team</label><select id="f-m-away" required class="${inputClass}">${teamOpts}</select></div></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Tournament</label><select id="f-m-tourn" class="${inputClass}"><option value="">(None / Friendly)</option>${tournOpts}</select></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Date</label><input id="f-m-date" type="date" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Location</label><input id="f-m-loc" type="text" class="${inputClass}" placeholder="e.g. Geneva Arena"></div></div><button type="submit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition">Create Match</button></form>`;
         } else if (action === 'add-tournament') {
-            titleEl.innerText = 'ADD TOURNAMENT';
+            setModalTitle('Add Tournament', 'plus', 'emerald');
             bodyEl.innerHTML = `<form onsubmit="ui.submitAddTournament(event)" class="flex flex-col gap-4"><div><label class="block text-xs font-medium text-slate-300 mb-1">Tournament Name</label><input id="f-tr-name" type="text" required class="${inputClass}" placeholder="e.g. World Cup 2026"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Location</label><input id="f-tr-loc" type="text" class="${inputClass}" placeholder="e.g. Geneva, Switzerland"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Start Date</label><input id="f-tr-date" type="date" class="${inputClass}"></div><button type="submit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition">Add Tournament</button></form>`;
         }
         document.getElementById('modal-backdrop').classList.remove('hidden');
@@ -302,12 +328,15 @@ const ui = {
 
     openSelector(mode) {
         currentView = null;
-        const titleEl = document.getElementById('modal-title');
         const bodyEl = document.getElementById('modal-body');
         const [action, entity] = mode.split('-');
-        titleEl.innerText = `${action.toUpperCase()} ${entity.toUpperCase()}`;
 
-        // THIS WAS THE MISSING LINE:
+        setModalTitle(
+            `${action === 'remove' ? 'Remove' : 'Edit'} ${entity[0].toUpperCase() + entity.slice(1)}`,
+            action === 'remove' ? 'trash' : 'edit',
+            action === 'remove' ? 'rose' : 'amber'
+        );
+
         const inputClass = 'w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-indigo-500';
 
         let options = [];
@@ -318,7 +347,7 @@ const ui = {
         if (entity === 'match') options = db.matches.map((m) => ({ id: m.id, name: `${db.teams.find((t) => t.id === m.homeId)?.name || 'Home'} vs ${db.teams.find((t) => t.id === m.awayId)?.name || 'Away'} (${m.date})` }));
 
         const optsHtml = options.map((o) => `<option value="${o.id}">${o.name}</option>`).join('');
-        
+
         bodyEl.innerHTML = `
             <form onsubmit="ui.handleSelectorSubmit(event, '${action}', '${entity}')" class="flex flex-col gap-4">
                 <div>
@@ -332,7 +361,7 @@ const ui = {
                 </button>
             </form>
         `;
-        
+
         document.getElementById('modal-backdrop').classList.remove('hidden');
     },
 
@@ -357,36 +386,35 @@ const ui = {
 
     openEditForm(entity, id) {
         currentView = null;
-        const titleEl = document.getElementById('modal-title');
         const bodyEl = document.getElementById('modal-body');
         const inputClass = 'w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 text-sm focus:outline-none focus:border-indigo-500';
 
         if (entity === 'player') {
             const p = db.players.find((x) => x.id === id);
             if (!p) return setStatus('Player not found.');
-            titleEl.innerText = `EDIT PLAYER: ${p.fname} ${p.lname}`;
+            setModalTitle(`Edit Player — ${p.fname} ${p.lname}`, 'edit', 'amber');
             const teamOpts = db.teams.map((t) => `<option value="${t.id}" ${t.id === p.teamId ? 'selected' : ''}>${t.name}</option>`).join('');
             bodyEl.innerHTML = `<form onsubmit="ui.submitEdit(event, 'player', ${p.id})" class="flex flex-col gap-4"><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">First Name</label><input id="f-ep-fname" type="text" required value="${p.fname}" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Surname</label><input id="f-ep-lname" type="text" value="${p.lname}" class="${inputClass}"></div></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Team</label><select id="f-ep-team" class="${inputClass}"><option value="">(None)</option>${teamOpts}</select></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Birthdate</label><input id="f-ep-birth" type="date" value="${p.birthdate || ''}" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Position</label><input id="f-ep-pos" type="text" value="${p.position || ''}" class="${inputClass}"></div></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm transition">Save Changes</button></form>`;
         } else if (entity === 'team') {
             const t = db.teams.find((x) => x.id === id);
             if (!t) return setStatus('Team not found.');
-            titleEl.innerText = `EDIT TEAM: ${t.name}`;
+            setModalTitle(`Edit Team — ${t.name}`, 'edit', 'amber');
             const clubOpts = db.clubs.map((c) => `<option value="${c.id}" ${c.id === t.clubId ? 'selected' : ''}>${c.name}</option>`).join('');
             bodyEl.innerHTML = `<form onsubmit="ui.submitEdit(event, 'team', ${t.id})" class="flex flex-col gap-4"><div><label class="block text-xs font-medium text-slate-300 mb-1">Team Name</label><input id="f-et-name" type="text" required value="${t.name}" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Club</label><select id="f-et-club" class="${inputClass}"><option value="">(None)</option>${clubOpts}</select></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm transition">Save Changes</button></form>`;
         } else if (entity === 'club') {
             const c = db.clubs.find((x) => x.id === id);
             if (!c) return setStatus('Club not found.');
-            titleEl.innerText = `EDIT CLUB: ${c.name}`;
+            setModalTitle(`Edit Club — ${c.name}`, 'edit', 'amber');
             bodyEl.innerHTML = `<form onsubmit="ui.submitEdit(event, 'club', ${c.id})" class="flex flex-col gap-4"><div><label class="block text-xs font-medium text-slate-300 mb-1">Club Name</label><input id="f-ec-name" type="text" required value="${c.name}" class="${inputClass}"></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm transition">Save Changes</button></form>`;
         } else if (entity === 'tournament') {
             const tr = db.tournaments.find((x) => x.id === id);
             if (!tr) return setStatus('Tournament not found.');
-            titleEl.innerText = `EDIT TOURNAMENT: ${tr.name}`;
+            setModalTitle(`Edit Tournament — ${tr.name}`, 'edit', 'amber');
             bodyEl.innerHTML = `<form onsubmit="ui.submitEdit(event, 'tournament', ${tr.id})" class="flex flex-col gap-4"><div><label class="block text-xs font-medium text-slate-300 mb-1">Tournament Name</label><input id="f-etr-name" type="text" required value="${tr.name}" class="${inputClass}"></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Location</label><input id="f-etr-loc" type="text" value="${tr.location || ''}" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Date</label><input id="f-etr-date" type="date" value="${tr.date || ''}" class="${inputClass}"></div></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm transition">Save Changes</button></form>`;
         } else if (entity === 'match') {
             const m = db.matches.find((x) => x.id === id);
             if (!m) return setStatus('Match not found.');
-            titleEl.innerText = 'EDIT MATCH FIXTURE';
+            setModalTitle('Edit Match Fixture', 'edit', 'amber');
             const teamOpts = (selected) => db.teams.map((t) => `<option value="${t.id}" ${t.id === selected ? 'selected' : ''}>${t.name}</option>`).join('');
             const tournOpts = db.tournaments.map((tr) => `<option value="${tr.id}" ${tr.id === m.tournId ? 'selected' : ''}>${tr.name}</option>`).join('');
             bodyEl.innerHTML = `<form onsubmit="ui.submitEdit(event, 'match', ${m.id})" class="flex flex-col gap-4"><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Home Team</label><select id="f-em-home" required class="${inputClass}">${teamOpts(m.homeId)}</select></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Away Team</label><select id="f-em-away" required class="${inputClass}">${teamOpts(m.awayId)}</select></div></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Tournament</label><select id="f-em-tourn" class="${inputClass}"><option value="">(None / Friendly)</option>${tournOpts}</select></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-medium text-slate-300 mb-1">Date</label><input id="f-em-date" type="date" value="${m.date || ''}" class="${inputClass}"></div><div><label class="block text-xs font-medium text-slate-300 mb-1">Location</label><input id="f-em-loc" type="text" value="${m.location || ''}" class="${inputClass}"></div></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm transition">Save Changes</button></form>`;
@@ -498,6 +526,7 @@ function setStatus(msg) {
 }
 
 async function pollForUpdates() {
+    if (document.hidden) return; // skip polling when tab is not visible
     try {
         const res = await fetch('/api/version', { cache: 'no-store' });
         if (!res.ok) return;
