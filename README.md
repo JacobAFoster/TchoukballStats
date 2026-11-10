@@ -17,6 +17,8 @@ Transform the platform into a decoupled web asset capable of running on local ne
 
 The codebase is split into two logical targets to serve different distribution environments:
 text
+
+```text
 ├── 🐍 PYTHON ENVIRONMENT
 │   ├── main.py                # Main application entrance
 │   ├── tchoukball stats.py    # Legacy / core algorithmic processing
@@ -36,3 +38,4 @@ text
 │
 └── 💾 DATA RESIDENCY
     └── data.json              # Shared structured flat-file database
+```
