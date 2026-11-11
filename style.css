@@ -360,7 +360,6 @@ button { cursor: pointer !important; position: relative; z-index: 10; font-famil
   color: #e0e7ff;
 }
 .btn-action-highlight::after { opacity: 0.4; }
-.btn-action-highlight > span:last-child { display: none; }
 
 .btn-danger {
   background-color: rgba(148, 163, 184, 0.04);
@@ -374,6 +373,15 @@ button { cursor: pointer !important; position: relative; z-index: 10; font-famil
 }
 
 /* ---------- Context Menu ---------- */
+/* R11 — base opacity 0 so the entrance animation brings it to 1;
+   prevents the single-frame "flash" when the menu is re-shown. */
+#context-menu {
+  background: rgba(10, 15, 28, 0.99) !important;
+  border: 1px solid var(--border-strong) !important;
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+}
+
 .context-menu-animate {
   animation: fadeIn 0.12s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: top left;
@@ -383,14 +391,12 @@ button { cursor: pointer !important; position: relative; z-index: 10; font-famil
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-#context-menu {
-  background: rgba(10, 15, 28, 0.99) !important;
-  border: 1px solid var(--border-strong) !important;
-  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.6);
-}
-
 /* ---------- Modal ---------- */
-#modal-backdrop { animation: backdropIn 0.15s ease-out; }
+#modal-backdrop {
+  animation: backdropIn 0.15s ease-out;
+  /* #28 — use design-system base color instead of Tailwind slate-950 */
+  background-color: rgba(5, 8, 16, 0.85);
+}
 #modal-card { animation: modalIn 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
 
 @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
